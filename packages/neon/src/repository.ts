@@ -356,6 +356,11 @@ export function createRepository(db: Database): FeedbackRepository {
       if (!ITEM_STATES.includes(input.state)) {
         throw new Error(`Invalid state "${input.state}".`);
       }
+      if (input.state === "merged") {
+        throw new Error(
+          'State "merged" is set only by the merge operation, which establishes mergedInto.',
+        );
+      }
       await db.transaction(async (tx) => {
         const t = tx as Database;
         const item = await requireItem(t, input.itemId);
@@ -402,8 +407,12 @@ export function createRepository(db: Database): FeedbackRepository {
           .where(eq(schema.votes.itemId, plan.targetId));
         const targetVoters = new Set(targetVotes.map((v) => v.actorId));
         const fresh = sourceVotes.filter((v) => !targetVoters.has(v.actorId));
+        // Increment by rows actually inserted, not by the snapshot count: a
+        // concurrent vote on the target makes onConflictDoNothing skip a row,
+        // and counting it would inflate voteCount past the distinct rows.
+        let transferred = 0;
         if (fresh.length > 0) {
-          await t
+          const inserted = await t
             .insert(schema.votes)
             .values(
               fresh.map((v) => ({
@@ -412,7 +421,9 @@ export function createRepository(db: Database): FeedbackRepository {
                 createdAt: now,
               })),
             )
-            .onConflictDoNothing();
+            .onConflictDoNothing()
+            .returning({ actorId: schema.votes.actorId });
+          transferred = inserted.length;
         }
         const sourceSubs = await t
           .select({ actorId: schema.subscriptions.actorId })
@@ -443,7 +454,7 @@ export function createRepository(db: Database): FeedbackRepository {
         await t
           .update(schema.items)
           .set({
-            voteCount: sql`${schema.items.voteCount} + ${fresh.length}`,
+            voteCount: sql`${schema.items.voteCount} + ${transferred}`,
             updatedAt: now,
           })
           .where(eq(schema.items.id, plan.targetId));

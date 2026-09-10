@@ -240,6 +240,22 @@ describe("items.setState", () => {
     });
     expect(events.page.filter((e) => e.type === "state_changed")).toEqual([]);
   });
+
+  test("rejects direct transitions to merged", async () => {
+    const t = setup();
+    const boardId = await createBoard(t);
+    const itemId = await createItem(t, boardId);
+    await expect(
+      t.mutation(api.items.setState, {
+        itemId,
+        state: "merged",
+        actorId: "moderator",
+      }),
+    ).rejects.toThrow();
+    const got = await t.query(api.items.get, { itemId });
+    expect(got?.item.state).toBe("inbox");
+    expect(got?.item.mergedInto).toBeUndefined();
+  });
 });
 
 describe("items.merge", () => {

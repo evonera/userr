@@ -166,11 +166,19 @@ export async function runConformanceSuite(
   await repo.setState({ itemId: target.id, state: "planned", actorId: "moderator" });
   assert.equal((await repo.listEvents({ itemId: target.id })).length, eventCount);
 
-  // 10. States outside the contract are rejected, never persisted.
+  // 10. States outside the contract are rejected, never persisted — and
+  // `merged` is merge-operation-only (it must always come with mergedInto).
   await assert.rejects(
     repo.setState({
       itemId: target.id,
       state: "nonsense" as ItemState,
+      actorId: "moderator",
+    }),
+  );
+  await assert.rejects(
+    repo.setState({
+      itemId: target.id,
+      state: "merged",
       actorId: "moderator",
     }),
   );
