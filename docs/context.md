@@ -68,3 +68,14 @@ state authorization, async embedding hook, and component tests/example app.
 - CLI generates `feedback.config.ts`; rename to `userr.config.ts` for brand
   consistency? Pre-release so cheap, but needs an explicit call (touches CLI
   source, test, doctor check, and docs).
+
+## Completed 2026-09-10 — docs consolidation + GitHub push
+
+- Moved root spec files (`plan`, `architecture`, `features`, `dependencies`,
+  `phases`, `context`) into `docs/`; root keeps `README.md`, `AGENTS.md`,
+  `CONTRIBUTING.md`, `LICENSE`. Did NOT gitignore `.md` files — docs ship with
+  the repo; `docs/README.md` is now the full index. Fixed all cross-links
+  (`AGENTS.md`, `README.md`, in-docs references) and verified zero stale paths.
+- Extended `.gitignore` (`.DS_Store`, `*.local`, `convex/_generated/`).
+- Initialized git, committed foundation (48 files), pushed `main` to
+  `github.com/evonera/userr` (remote was empty; now tracks `origin/main`).
