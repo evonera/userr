@@ -60,9 +60,31 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Audit fix branch in progress: `fix/audit-round-1` (docs hygiene, Convex
-correctness, contract hardening, write routes, CLI/fixture honesty). Next:
-review, merge, then Phase 4 (triage and closed loop — webhook outbox first).
+Audit fix branch in review: `fix/audit-round-1`. Next: review, merge, then
+Phase 4 (triage and closed loop — webhook outbox first).
+
+## Completed (audit-round-1 branch, in review)
+
+- Docs: Phase 3 marked shipped; delivery-plan §§1–3 rewritten as completed
+  (tags → Phase 5+, API keys → Phase 6, webhooks → Phase 4; scaffolds defined
+  as wiring starting points). Audit note: the reported `CONTEXT.md` duplicate
+  was a false positive — macOS case-insensitive FS resolving `context.md`;
+  no such file ever existed. Contract boundary stated explicitly: the shared
+  suite covers votes/merge/state/changelog/lanes/events; comments/subs/similar
+  are backend-specific helpers with direct tests. Expansion is a Phase 6 candidate.
+- Convex: `boards.list` on the component paginator; `convex-helpers` moved to
+  runtime deps; merge rejects shipped sources; `storeEmbedding` enforces
+  `EMBEDDING_DIMENSIONS` (1536, new core const).
+- Contract: suite steps 5b (shipped-merge refusal) and 10 (invalid + merged
+  states) on all adapters; Neon merge/dims parity; new Neon repository tests.
+- Routes: moderator-gated `POST /changelog` + `POST /lanes`; REST client
+  methods to match. CLI: template emits all four methods; `init --backend
+  neon`; backend-aware `doctor`; `app/sitemap.ts` template; wiring guide in
+  `.userr/README.md`. Fixture README/config made honest (no phantom Next app).
+- Dep policy recorded in `dependencies.md` (runtime ⇒ deps, host runtimes ⇒
+  peer; `drizzle-orm` dep-only, `pg` peer-only). REST client mocked-fetch tests.
+- Full repo green: 4 core + 42 convex (+1 skip) + 9 neon + 12 react + 9 CLI,
+  typecheck clean.
 
 ## Completed (Phase 3 branch, in review)
 
