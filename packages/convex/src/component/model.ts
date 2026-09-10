@@ -105,6 +105,28 @@ export const pageOfComments = v.object({
   continueCursor: v.union(v.string(), v.null()),
 });
 
+export const publicChangelogEntry = v.object({
+  _id: v.id("changelogEntries"),
+  _creationTime: v.number(),
+  boardId: v.id("boards"),
+  title: v.string(),
+  slug: v.string(),
+  body: v.string(),
+  version: v.optional(v.string()),
+  linkedItemIds: v.array(v.id("items")),
+  publishedAt: v.optional(v.number()),
+  createdAt: v.number(),
+});
+
+export const publicLane = v.object({
+  _id: v.id("roadmapLanes"),
+  _creationTime: v.number(),
+  boardId: v.id("boards"),
+  name: v.string(),
+  states: v.array(v.string()),
+  order: v.number(),
+});
+
 export const MAX_COMMENT_DEPTH = 5;
 export const MAX_TITLE_LENGTH = 160;
 export const MAX_BODY_LENGTH = 10_000;

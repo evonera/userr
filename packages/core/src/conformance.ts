@@ -183,4 +183,39 @@ export async function runConformanceSuite(
     }),
   );
   assert.equal((await repo.findItem(target.id))?.state, "planned");
+
+  // 11. Changelog entries publish with linked items and paginate.
+  const entry = await repo.publishChangelogEntry({
+    boardId: board.id,
+    title: "Dark theme ships",
+    body: "The most requested theme is here.",
+    version: "2.3.0",
+    linkedItemIds: [target.id],
+    publishedAt: Date.now(),
+  });
+  assert.equal(entry.boardId, board.id);
+  assert.deepEqual([...entry.linkedItemIds], [target.id]);
+  const changelog = await repo.listChangelog({ boardId: board.id, limit: 10 });
+  assert.ok(changelog.items.some((e) => e.id === entry.id));
+
+  // 12. Roadmap lanes save (create + update by id) and list in order.
+  await repo.saveLane({
+    boardId: board.id,
+    name: "Now",
+    states: ["in_progress"],
+    order: 1,
+  });
+  const lane = await repo.saveLane({
+    boardId: board.id,
+    name: "Next",
+    states: ["planned"],
+    order: 0,
+  });
+  const renamed = await repo.saveLane({ ...lane, name: "Up next" });
+  assert.equal(renamed.name, "Up next");
+  const lanes = await repo.listLanes({ boardId: board.id });
+  assert.deepEqual(
+    lanes.map((l) => l.name),
+    ["Up next", "Now"],
+  );
 }

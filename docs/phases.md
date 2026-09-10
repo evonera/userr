@@ -23,14 +23,14 @@ tests pass; later phase detail lives in [delivery-plan.md](./delivery-plan.md).
 - Host functions resolve identity and permission first; component functions
   stay client-unreachable.
 
-## Phase 2 — Postgres/Neon headless parity (in review, unmerged)
+## Phase 2 — Postgres/Neon headless parity (shipped)
 
 - Drizzle schema/migrations, `pgvector`, transactional vote/merge behavior,
   Next route-handler factory, and BYO auth integration points.
 - The shared domain conformance suite passes against Convex and Postgres.
 - Polling/SWR baseline documented honestly; no cross-backend “live” claim.
 
-## Phase 3 — Public portal and updates
+## Phase 3 — Public portal and updates (in review, unmerged)
 
 - Generate owned Next.js board, detail, roadmap, changelog, RSS/sitemap, i18n,
   theming, comments, search, and duplicate suggestions.

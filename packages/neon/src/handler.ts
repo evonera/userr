@@ -110,6 +110,8 @@ function str(value: unknown, name: string): string {
  *   POST   /items/:id/subscribe     subscribe (authenticated)
  *   DELETE /items/:id/unsubscribe   unsubscribe (authenticated)
  *   GET    /similar?boardId&title   lexical duplicate suggestions
+ *   GET    /changelog?boardId       changelog entries (newest first)
+ *   GET    /lanes?boardId           roadmap lanes in order
  */
 export function createRequestHandler(
   options: HandlerOptions,
@@ -145,7 +147,9 @@ export function createRequestHandler(
     const query = url.searchParams;
     // Route on trailing segments so any mount prefix works.
     const anchor = segments.findIndex((s) =>
-      ["boards", "items", "comments", "similar"].includes(s),
+      ["boards", "items", "comments", "similar", "changelog", "lanes"].includes(
+        s,
+      ),
     );
     const parts = anchor === -1 ? [] : segments.slice(anchor);
 
@@ -208,6 +212,24 @@ export function createRequestHandler(
         const title = query.get("title") ?? "";
         if (!boardId) return failure("boardId is required.", 400);
         return json(await findSimilar(options.db, { boardId, title }));
+      }
+      // GET /changelog?boardId&limit&cursor
+      if (req.method === "GET" && parts[0] === "changelog") {
+        const boardId = query.get("boardId");
+        if (!boardId) return failure("boardId is required.", 400);
+        return json(
+          await repo.listChangelog({
+            boardId,
+            limit: Math.min(Number(query.get("limit") ?? 20), 100),
+            cursor: query.get("cursor") ?? undefined,
+          }),
+        );
+      }
+      // GET /lanes?boardId
+      if (req.method === "GET" && parts[0] === "lanes") {
+        const boardId = query.get("boardId");
+        if (!boardId) return failure("boardId is required.", 400);
+        return json(await repo.listLanes({ boardId }));
       }
       // Item-scoped routes: /items/:id/...
       if (parts[0] === "items" && parts[1]) {

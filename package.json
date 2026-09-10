@@ -7,7 +7,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "build": "npm run build --workspace=@userr/core && npm run build --workspace=@userr/react",
-    "test": "npm run test --workspace=@userr/core && npm run test --workspace=@userr/convex && npm run test --workspace=@userr/neon && npm run test --workspace=@userr/cli",
+    "test": "npm run test --workspace=@userr/core && npm run test --workspace=@userr/convex && npm run test --workspace=@userr/neon && npm run test --workspace=@userr/react && npm run test --workspace=@userr/cli",
     "typecheck": "npm run typecheck --workspace=@userr/core && npm run typecheck --workspace=@userr/convex && npm run typecheck --workspace=@userr/neon && npm run typecheck --workspace=@userr/react",
     "lint": "npm run typecheck",
     "userr": "node packages/cli/src/index.mjs"

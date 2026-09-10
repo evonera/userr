@@ -4,10 +4,53 @@
   "description": "Accessible React primitives for Userr.",
   "license": "MIT",
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "peerDependencies": { "react": ">=18", "react-dom": ">=18" },
-  "dependencies": { "@userr/core": "0.1.0" },
-  "devDependencies": { "@types/react": "^19.1.2", "react": "^19.1.0" },
-  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./convex": {
+      "types": "./dist/hooks-convex.d.ts",
+      "default": "./dist/hooks-convex.js"
+    },
+    "./rest": {
+      "types": "./dist/rest.d.ts",
+      "default": "./dist/rest.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "peerDependencies": {
+    "convex": ">=1.27.0",
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "convex": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-tabs": "^1.1.21",
+    "@userr/core": "0.1.0",
+    "clsx": "^2.1.1",
+    "react-markdown": "^10.1.0",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/react": "^19.1.2",
+    "convex": "^1.27.0",
+    "jsdom": "^30.0.1",
+    "react": "^19.1.0",
+    "vitest": "^2.1.9"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
+  }
 }

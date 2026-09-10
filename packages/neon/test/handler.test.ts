@@ -211,4 +211,53 @@ describe("request handler", () => {
     );
     expect(res.status).toBe(403);
   });
+
+  test("changelog and lane reads serve published content", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const handle = createRequestHandler({
+      db,
+      identify: async (req) => req.headers.get("x-actor"),
+    });
+    const empty = await handle(request("/changelog?boardId=missing"));
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toMatchObject({ items: [] });
+
+    const board = (await (
+      await handle(
+        request("/boards", {
+          method: "POST",
+          actor: "owner",
+          body: { slug: "b", name: "B" },
+        }),
+      )
+    ).json()) as { id: string };
+    const { createRepository } = await import("../src/repository.js");
+    const repo = createRepository(db);
+    await repo.publishChangelogEntry({
+      boardId: board.id,
+      title: "Launch",
+      body: "We launched.",
+      linkedItemIds: [],
+    });
+    await repo.saveLane({
+      boardId: board.id,
+      name: "Now",
+      states: ["in_progress"],
+      order: 0,
+    });
+
+    const changelog = (await (
+      await handle(request(`/changelog?boardId=${board.id}`))
+    ).json()) as { items: { title: string }[] };
+    expect(changelog.items.map((e) => e.title)).toContain("Launch");
+
+    const lanes = (await (
+      await handle(request(`/lanes?boardId=${board.id}`))
+    ).json()) as { name: string }[];
+    expect(lanes.map((l) => l.name)).toContain("Now");
+
+    const missingBoard = await handle(request("/lanes"));
+    expect(missingBoard.status).toBe(400);
+  });
 });

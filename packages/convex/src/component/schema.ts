@@ -27,4 +27,12 @@ export default defineSchema({
   comments: defineTable({ itemId: v.id("items"), actorId: v.string(), body: v.string(), parentId: v.optional(v.id("comments")), createdAt: v.number(), updatedAt: v.number(), deletedAt: v.optional(v.number()) }).index("by_item", ["itemId"]),
   events: defineTable({ itemId: v.id("items"), type: v.string(), actorId: v.optional(v.string()), payload: v.any(), createdAt: v.number() }).index("by_item_created", ["itemId", "createdAt"]),
   subscriptions: defineTable({ itemId: v.id("items"), actorId: v.string(), notifyComments: v.optional(v.boolean()), notifyStatusChanges: v.optional(v.boolean()), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
+  changelogEntries: defineTable({
+    boardId: v.id("boards"), title: v.string(), slug: v.string(), body: v.string(),
+    version: v.optional(v.string()), linkedItemIds: v.array(v.id("items")),
+    publishedAt: v.optional(v.number()), createdAt: v.number(),
+  }).index("by_board_created", ["boardId", "createdAt"]),
+  roadmapLanes: defineTable({
+    boardId: v.id("boards"), name: v.string(), states: v.array(v.string()), order: v.number(),
+  }).index("by_board_order", ["boardId", "order"]),
 });
