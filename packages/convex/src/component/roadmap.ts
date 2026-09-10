@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server.js";
-import { publicLane } from "./model.js";
+import { itemState, publicLane } from "./model.js";
 
 /**
  * Roadmap lanes group item states into public columns ("Now" → in_progress,
@@ -13,7 +13,7 @@ export const save = mutation({
     id: v.optional(v.id("roadmapLanes")),
     boardId: v.id("boards"),
     name: v.string(),
-    states: v.array(v.string()),
+    states: v.array(itemState),
     order: v.number(),
   },
   returns: v.id("roadmapLanes"),

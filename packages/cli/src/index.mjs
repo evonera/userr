@@ -23,13 +23,15 @@ function detect(root) {
 function filesFor({ backend, framework }) {
   if (backend !== "convex" && backend !== "neon") throw new Error(`Backend '${backend}' is unknown. Available: convex, neon.`);
   if (framework !== "next") throw new Error(`Framework '${framework}' is planned but not installable yet. Available: next.`);
+  // init owns project setup only (config + manifest + guide). Portal pages
+  // belong to `add`: sharing the page path between commands turned init's
+  // placeholder into an unresolvable conflict.
   const backendNotes =
     backend === "convex"
-      ? "Add the Convex component to `convex/convex.config.ts`, create authenticated host wrappers, then connect the generated portal to those wrappers."
-      : "Apply the `@userr/neon` migrations to your Postgres database, mount the API catch-all at `app/api/userr/[...path]/route.ts` (see `userr add --backend neon`), wire identify/resolveRole to your auth, then connect the generated portal to `/api/userr`.";
+      ? "Add the Convex component to `convex/convex.config.ts`, create authenticated host wrappers, then run `userr add --backend convex` for the portal pages."
+      : "Install @userr/neon, drizzle-orm and pg, apply the migrations to your Postgres database, wire identify/resolveRole to your auth, then run `userr add --backend neon` for the portal pages and API route.";
   return {
     "userr.config.ts": `export default {\n  backend: "${backend}",\n  boardSlug: "feedback",\n  portalPath: "/feedback",\n  adminPath: "/admin/feedback",\n};\n`,
-    "app/feedback/page.tsx": `import { FeedbackProvider } from "@userr/react";\n\nexport default function FeedbackPage() {\n  return <FeedbackProvider><main><h1>Feedback</h1>{/* Run \`userr add --backend ${backend}\` for the full board, then connect it to your ${backend === "convex" ? "host wrappers" : "API routes"}. */}</main></FeedbackProvider>;\n}\n`,
     ".userr/README.md": `# Userr\n\nGenerated files are safe to edit. ${backendNotes}\n`,
   };
 }
@@ -163,16 +165,23 @@ function doctor() {
   if (!detected.hasPackage) throw new Error(`No package.json found in ${root}.`);
   const manifest = readManifest(root);
   const backend = manifest?.backend ?? value("--backend", "convex");
-  const needsConvex = backend === "convex";
-  const checks = [
-    ["Next.js project", detected.next],
-    ...(needsConvex ? [["Convex installed", detected.convex]] : []),
-    ["userr.config.ts", existsSync(join(root, "userr.config.ts"))],
-    ["generated manifest", manifest !== null],
-  ];
-  for (const [name, passed] of checks) console.log(`${passed ? "✓" : "✗"} ${name}`);
-  const backendOk = needsConvex ? detected.convex : true;
-  if (!detected.next || !backendOk || !existsSync(join(root, "userr.config.ts"))) process.exitCode = 1;
+  const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const dependencies = { ...(packageJson?.dependencies ?? {}), ...(packageJson?.devDependencies ?? {}) };
+  const checks = [["Next.js project", detected.next]];
+  if (backend === "convex") {
+    checks.push(["Convex installed", detected.convex]);
+  } else {
+    checks.push(["@userr/neon installed", Boolean(dependencies["@userr/neon"])]);
+    checks.push(["API route generated", existsSync(join(root, "app", "api", "userr", "[...path]", "route.ts"))]);
+  }
+  checks.push(["userr.config.ts", existsSync(join(root, "userr.config.ts"))]);
+  checks.push(["generated manifest", manifest !== null]);
+  let ok = true;
+  for (const [name, passed] of checks) { console.log(`${passed ? "✓" : "✗"} ${name}`); if (!passed) ok = false; }
+  if (backend !== "convex" && !process.env.DATABASE_URL) {
+    console.log("! DATABASE_URL is not set in this environment (needed at runtime; .env.local is fine).");
+  }
+  if (!ok) process.exitCode = 1;
 }
 
 async function upgrade() {

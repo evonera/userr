@@ -335,6 +335,15 @@ describe("request handler", () => {
       }),
     );
     expect(((await renamed.json()) as { name: string }).name).toBe("Next");
+
+    const bogusLane = await handle(
+      request("/lanes", {
+        method: "POST",
+        actor: "moderator",
+        body: { boardId: board.id, name: "Bogus", states: ["bogus"], order: 2 },
+      }),
+    );
+    expect(bogusLane.status).toBe(400);
   });
 
   test("private boards deny reads and writes without canReadBoard", async () => {
