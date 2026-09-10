@@ -388,14 +388,17 @@ export const findSimilar = query({
     const limit = Math.min(Math.max(args.limit ?? 5, 1), 20);
     const normalized = normalizeTitle(args.title);
     if (normalized.length === 0) return { exact: null, similar: [] };
-    const exactHit = await ctx.db
+    // Normalized titles are deliberately non-unique (creation must never be
+    // blocked), so never use .unique() here: two live duplicates would throw.
+    // Scan a small bounded set for the first non-merged exact hit instead.
+    const exactCandidates = await ctx.db
       .query("items")
       .withIndex("by_board_normalized_title", (q) =>
         q.eq("boardId", args.boardId).eq("normalizedTitle", normalized),
       )
-      .unique();
-    const exact =
-      exactHit && !exactHit.mergedInto ? exactHit._id : null;
+      .take(5);
+    const exactHit = exactCandidates.find((item) => !item.mergedInto);
+    const exact = exactHit ? exactHit._id : null;
     const candidates = await ctx.db
       .query("items")
       .withSearchIndex("search", (q) =>
