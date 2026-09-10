@@ -104,9 +104,7 @@ vote/merge, route-handler factory) running the shared conformance suite green.
 
 ## Open decisions (do not assume)
 
-- CLI generates `feedback.config.ts`; rename to `userr.config.ts` for brand
-  consistency? Pre-release so cheap, but needs an explicit call (touches CLI
-  source, test, doctor check, and docs).
+(none currently — the `userr.config.ts` rename shipped on the Phase 2 branch.)
 
 ## Completed 2026-09-10 — docs consolidation + GitHub push
 
