@@ -1,8 +1,17 @@
-# next-convex fixture (example app)
+# next-convex fixture (example backend)
 
-Minimal Convex + Next.js host showing the canonical Userr integration. This is
-a scaffold: bindings under `convex/_generated` are produced by a real
-deployment, which needs explicit authorization (see `docs/context.md`).
+Minimal Convex host showing the canonical Userr integration: component mount,
+host wrappers with role/transition config, and a seed script. This is a
+backend-only scaffold — there is no Next.js `app/` dir here yet (a full
+portal page is queued behind a deployment); bindings under `convex/_generated`
+are produced by a real deployment, which needs explicit authorization
+(see `docs/context.md`).
+
+The checked-in `resolveActorId` returns null on purpose: authenticated
+mutations (`createItem`, `setItemState`) reject until real auth is wired.
+Public reads (`listItems`) work once deployed. `resolveRole` currently maps
+everyone to `member`, so moderation paths reject until roles come from your
+user store.
 
 ## Once a dev deployment is authorized
 
@@ -15,10 +24,10 @@ npx convex run convex/feedback.ts:seed
 Then verify the deployment-gated cases:
 
 - `embeddings.findSimilarVector` (vector search; convex-test cannot run it)
-- `items.list` reactivity in the Next.js app (`app/feedback/page.tsx` renders
-  `<FeedbackProvider>` from `@userr/react` wired to `api.convex/feedback`)
+- `items.list` reactivity from a real client
 
 ## What the fixture proves without a deployment
 
 Nothing runs here yet — but every function it calls is covered offline by
-`packages/convex/test` via convex-test (38 passing, 1 deployment-gated skip).
+`packages/convex/test` via convex-test (only the vector search case is
+deployment-gated).
