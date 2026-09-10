@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.userr/
+.env
+coverage/
+.DS_Store
+*.local
+convex/_generated/

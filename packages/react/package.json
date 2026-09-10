@@ -1,0 +1,13 @@
+{
+  "name": "@userr/react",
+  "version": "0.1.0",
+  "description": "Accessible React primitives for Userr.",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "peerDependencies": { "react": ">=18", "react-dom": ">=18" },
+  "dependencies": { "@userr/core": "0.1.0" },
+  "devDependencies": { "@types/react": "^19.1.2", "react": "^19.1.0" },
+  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" }
+}

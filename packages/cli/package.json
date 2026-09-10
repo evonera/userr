@@ -1,0 +1,10 @@
+{
+  "name": "@userr/cli",
+  "version": "0.1.0",
+  "description": "Safe installer for Userr.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "userr": "./dist/index.mjs" },
+  "files": ["dist"],
+  "scripts": { "test": "node --test test/**/*.test.mjs" }
+}

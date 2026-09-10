@@ -1,0 +1,4 @@
+{
+  "private": true,
+  "dependencies": { "next": "^15.0.0", "convex": "^1.27.0" }
+}

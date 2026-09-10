@@ -1,0 +1,17 @@
+{
+  "name": "@userr/convex",
+  "version": "0.1.0",
+  "description": "Convex component for Userr.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./convex.config.js": "./src/component/convex.config.ts",
+    "./client": "./src/client/index.ts"
+  },
+  "peerDependencies": { "convex": "^1.27.0" },
+  "devDependencies": { "convex": "^1.27.0", "typescript": "^5.8.3" },
+  "scripts": {
+    "codegen": "convex codegen --component-dir src/component",
+    "typecheck": "tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --strict src/component/*.ts src/client/*.ts"
+  }
+}
