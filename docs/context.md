@@ -11,24 +11,26 @@ API keys, or customer secrets.
 ## Current implementation state
 
 - `@userr/core`: zero-runtime-dependency TypeScript domain types, tested rules,
-  and the shared conformance suite (`runConformanceSuite`, self-validated
-  against an in-memory adapter). `FeedbackRepository` now covers
-  createBoard/createItem, vote/unvote, merge, and event listing.
-- `@userr/convex`: complete headless reference — boards/items/comments/
-  subscriptions/embeddings with cursor pagination (`convex-helpers`),
-  idempotent votes, atomic merges with subscription transfer, tombstoned
-  comments (depth ≤ 5), lexical duplicates, host-driven embedding enrichment,
-  and host authorization wrappers. 38 tests pass via convex-test (1
-  deployment-gated vector skip); `./test` register helper exported.
-- `@userr/react`: provider, card, and submission-form primitives.
-- `@userr/cli`: safe `init`, `doctor`, and `upgrade` skeleton; Convex + Next only.
-  Generates `userr.config.ts` (renamed from `feedback.config.ts` on the
-  Phase 2 branch).
-- `@userr/neon` (Phase 2, in review): Drizzle schema + committed migrations,
-  transactional `FeedbackRepository`, `toNextJsHandler` route factory, tested
-  against PGlite with zero credentials.
-- No Supabase, widget, capture, roadmap/changelog, admin, webhook,
-  or external integration implementation exists yet.
+  `ITEM_STATES` + `EMBEDDING_DIMENSIONS` contract constants, and the shared
+  conformance suite (12 steps, self-validated against an in-memory adapter).
+  `FeedbackRepository` covers boards/items, vote/unvote, setState (merged is
+  merge-op-only), merge, events, changelog, and lanes.
+- `@userr/convex`: headless reference — boards/items/comments/subscriptions/
+  embeddings/changelog/roadmap with cursor pagination (`convex-helpers`),
+  idempotent votes, atomic merges, tombstoned comments (depth ≤ 5), lexical
+  duplicates, host-driven enrichment, host authorization wrappers. 40 tests
+  via convex-test (1 deployment-gated vector skip); `./test` register helper.
+- `@userr/neon`: shipped parity — Drizzle schema + committed migrations,
+  transactional repository, `toNextJsHandler` routes (GET/POST/PATCH/DELETE)
+  with visibility gating (`canReadBoard`, fail-closed) and rule-code statuses.
+- `@userr/react`: presentational surfaces (board/detail/comments/roadmap/
+  changelog/dialog/atoms) over backend-agnostic views; split data layer
+  (`/convex` hooks + `/rest` client); messages dict; 8 smoke tests.
+- `@userr/cli`: `init`, `add` (both backends, RSS + sitemap, fail-closed
+  templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
+- No Supabase, widget, capture, admin triage, webhook outbox,
+  or external integration implementation exists yet. Webhook tables open
+  Phase 4; tags/API keys are explicitly deferred (see delivery-plan).
 
 ## Decisions that must not drift
 
@@ -58,8 +60,9 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Phase 3 is open as a PR (unmerged): `phase-3-public-portal`. Next: review, merge,
-then Phase 4 (triage and closed loop).
+Audit fix branch in progress: `fix/audit-round-1` (docs hygiene, Convex
+correctness, contract hardening, write routes, CLI/fixture honesty). Next:
+review, merge, then Phase 4 (triage and closed loop — webhook outbox first).
 
 ## Completed (Phase 3 branch, in review)
 

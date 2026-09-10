@@ -30,12 +30,16 @@ tests pass; later phase detail lives in [delivery-plan.md](./delivery-plan.md).
 - The shared domain conformance suite passes against Convex and Postgres.
 - Polling/SWR baseline documented honestly; no cross-backend “live” claim.
 
-## Phase 3 — Public portal and updates (in review, unmerged)
+## Phase 3 — Public portal and updates (shipped)
 
-- Generate owned Next.js board, detail, roadmap, changelog, RSS/sitemap, i18n,
-  theming, comments, search, and duplicate suggestions.
-- Extend CLI with `add`, generated-file ownership markers, and non-overwriting
-  upgrades for Convex and Neon.
+- Owned Next.js scaffolds (board, detail, roadmap, changelog, RSS) via
+  `userr add`, with ownership markers and non-overwriting upgrades for Convex
+  and Neon. Pages are wiring scaffolds with TODO markers for host bindings —
+  honest starting points, not drop-in apps.
+- Presentational React surfaces over backend-agnostic views, split data layer
+  (`@userr/react/convex` hooks + `@userr/react/rest` client), messages dict,
+  theming.
+- Residuals: deployment-gated vector test; fixture Next app.
 
 ## Phase 4 — Triage and closed loop
 
