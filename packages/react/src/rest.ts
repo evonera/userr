@@ -212,6 +212,29 @@ export function createRestClient(options: RestClientOptions) {
       );
       return (Array.isArray(raw) ? raw : []).map(toLaneView);
     },
+    async publishChangelogEntry(input: {
+      boardId: string;
+      title: string;
+      body: string;
+      version?: string;
+      linkedItemIds?: string[];
+      publishedAt?: number;
+    }): Promise<ChangelogEntryView> {
+      return toChangelogEntryView(
+        await send<Record<string, unknown>>("/changelog", "POST", input),
+      );
+    },
+    async saveLane(input: {
+      id?: string;
+      boardId: string;
+      name: string;
+      states: string[];
+      order: number;
+    }): Promise<RoadmapLaneView> {
+      return toLaneView(
+        await send<Record<string, unknown>>("/lanes", "POST", input),
+      );
+    },
   };
 }
 

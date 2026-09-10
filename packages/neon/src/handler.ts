@@ -123,7 +123,9 @@ function str(value: unknown, name: string): string {
  *   DELETE /items/:id/unsubscribe   unsubscribe (authenticated)
  *   GET    /similar?boardId&title   lexical duplicate suggestions
  *   GET    /changelog?boardId       changelog entries (newest first)
+ *   POST   /changelog               publish entry (moderator)
  *   GET    /lanes?boardId           roadmap lanes in order
+ *   POST   /lanes                   save lane, id set = update (moderator)
  */
 export function createRequestHandler(
   options: HandlerOptions,
@@ -284,6 +286,41 @@ export function createRequestHandler(
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
         return json(await repo.listLanes({ boardId }));
+      }
+      // POST /changelog — moderator-gated; Phase 4's publisher calls this.
+      if (req.method === "POST" && parts[0] === "changelog") {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await moderator(req, boardId);
+        const entry = await repo.publishChangelogEntry({
+          boardId,
+          title: str(body.title, "title"),
+          body: typeof body.body === "string" ? body.body : "",
+          version:
+            typeof body.version === "string" ? body.version : undefined,
+          linkedItemIds: Array.isArray(body.linkedItemIds)
+            ? body.linkedItemIds.filter((id): id is string => typeof id === "string")
+            : [],
+          publishedAt:
+            typeof body.publishedAt === "number" ? body.publishedAt : undefined,
+        });
+        return json(entry, 201);
+      }
+      // POST /lanes — moderator-gated create/update (id present = update).
+      if (req.method === "POST" && parts[0] === "lanes") {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await moderator(req, boardId);
+        const lane = await repo.saveLane({
+          id: typeof body.id === "string" ? body.id : undefined,
+          boardId,
+          name: str(body.name, "name"),
+          states: Array.isArray(body.states)
+            ? body.states.filter((s): s is ItemState => typeof s === "string")
+            : [],
+          order: typeof body.order === "number" ? body.order : 0,
+        });
+        return json(lane, 201);
       }
       // Item-scoped routes: /items/:id/...
       if (parts[0] === "items" && parts[1]) {

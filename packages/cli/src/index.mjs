@@ -21,12 +21,16 @@ function detect(root) {
 }
 
 function filesFor({ backend, framework }) {
-  if (backend !== "convex") throw new Error(`Backend '${backend}' is planned but not installable yet. Available: convex.`);
+  if (backend !== "convex" && backend !== "neon") throw new Error(`Backend '${backend}' is unknown. Available: convex, neon.`);
   if (framework !== "next") throw new Error(`Framework '${framework}' is planned but not installable yet. Available: next.`);
+  const backendNotes =
+    backend === "convex"
+      ? "Add the Convex component to `convex/convex.config.ts`, create authenticated host wrappers, then connect the generated portal to those wrappers."
+      : "Apply the `@userr/neon` migrations to your Postgres database, mount the API catch-all at `app/api/userr/[...path]/route.ts` (see `userr add --backend neon`), wire identify/resolveRole to your auth, then connect the generated portal to `/api/userr`.";
   return {
-    "userr.config.ts": `export default {\n  boardSlug: "feedback",\n  portalPath: "/feedback",\n  adminPath: "/admin/feedback",\n};\n`,
-    "app/feedback/page.tsx": `import { FeedbackProvider } from "@userr/react";\n\nexport default function FeedbackPage() {\n  return <FeedbackProvider><main><h1>Feedback</h1>{/* Run \`userr add\` for the full board, then connect it to your host wrappers. */}</main></FeedbackProvider>;\n}\n`,
-    ".userr/README.md": `# Userr\n\nGenerated files are safe to edit. Add the Convex component to \`convex/convex.config.ts\`, create authenticated host wrappers, then connect the generated portal to those wrappers.\n`,
+    "userr.config.ts": `export default {\n  backend: "${backend}",\n  boardSlug: "feedback",\n  portalPath: "/feedback",\n  adminPath: "/admin/feedback",\n};\n`,
+    "app/feedback/page.tsx": `import { FeedbackProvider } from "@userr/react";\n\nexport default function FeedbackPage() {\n  return <FeedbackProvider><main><h1>Feedback</h1>{/* Run \`userr add --backend ${backend}\` for the full board, then connect it to your ${backend === "convex" ? "host wrappers" : "API routes"}. */}</main></FeedbackProvider>;\n}\n`,
+    ".userr/README.md": `# Userr\n\nGenerated files are safe to edit. ${backendNotes}\n`,
   };
 }
 
@@ -80,7 +84,7 @@ import * as schema from "@userr/neon/schema";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
 const db = drizzle(pool, { schema });
 
-export const { GET, POST } = toNextJsHandler({
+export const { GET, POST, PATCH, DELETE } = toNextJsHandler({
   db,
   identify: async () => {
     throw new Error(
@@ -104,7 +108,16 @@ function filesForAdd({ backend, framework }) {
   if (backend === "neon") {
     files["app/api/userr/[...path]/route.ts"] = neonApiRoute();
   }
+  files["app/sitemap.ts"] = sitemapFile({ backend });
   return files;
+}
+
+function sitemapFile({ backend }) {
+  const source =
+    backend === "convex"
+      ? `// TODO: import { api } from "@/convex/_generated/api" and list boards, items, and changelog entries.\n  // Only include public boards; gate private content behind your auth.\n  return [];`
+      : `// TODO: query boards, items, and changelog entries via @userr/neon with your DATABASE_URL pool.\n  // Only include public boards; gate private content behind your auth.\n  return [];`;
+  return `${OWNERSHIP}import type { MetadataRoute } from "next";\n\nexport default async function sitemap(): Promise<MetadataRoute.Sitemap> {\n  ${source}\n}\n`;
 }
 
 function readManifest(root) {
@@ -148,14 +161,18 @@ async function add() {
 function doctor() {
   const root = resolve(value("--cwd", process.cwd())); const detected = detect(root);
   if (!detected.hasPackage) throw new Error(`No package.json found in ${root}.`);
+  const manifest = readManifest(root);
+  const backend = manifest?.backend ?? value("--backend", "convex");
+  const needsConvex = backend === "convex";
   const checks = [
     ["Next.js project", detected.next],
-    ["Convex installed", detected.convex],
+    ...(needsConvex ? [["Convex installed", detected.convex]] : []),
     ["userr.config.ts", existsSync(join(root, "userr.config.ts"))],
-    ["generated manifest", existsSync(join(root, ".userr", "manifest.json"))],
+    ["generated manifest", manifest !== null],
   ];
   for (const [name, passed] of checks) console.log(`${passed ? "✓" : "✗"} ${name}`);
-  if (!detected.next || !detected.convex) process.exitCode = 1;
+  const backendOk = needsConvex ? detected.convex : true;
+  if (!detected.next || !backendOk || !existsSync(join(root, "userr.config.ts"))) process.exitCode = 1;
 }
 
 async function upgrade() {

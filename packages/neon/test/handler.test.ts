@@ -260,6 +260,83 @@ describe("request handler", () => {
     expect(missingBoard.status).toBe(400);
   });
 
+  test("changelog publish and lane save require moderators", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const handle = createRequestHandler({
+      db,
+      identify: async (req) => req.headers.get("x-actor"),
+      resolveRole: async (actorId) =>
+        actorId === "moderator" ? "moderator" : "member",
+    });
+    const board = (await (
+      await handle(
+        request("/boards", {
+          method: "POST",
+          actor: "owner",
+          body: { slug: "b", name: "B" },
+        }),
+      )
+    ).json()) as { id: string };
+
+    const memberEntry = await handle(
+      request("/changelog", {
+        method: "POST",
+        actor: "alice",
+        body: { boardId: board.id, title: "T", body: "B" },
+      }),
+    );
+    expect(memberEntry.status).toBe(403);
+
+    const entry = await handle(
+      request("/changelog", {
+        method: "POST",
+        actor: "moderator",
+        body: {
+          boardId: board.id,
+          title: "Launch",
+          body: "We launched.",
+          version: "1.0.0",
+          linkedItemIds: [],
+        },
+      }),
+    );
+    expect(entry.status).toBe(201);
+
+    const memberLane = await handle(
+      request("/lanes", {
+        method: "POST",
+        actor: "alice",
+        body: { boardId: board.id, name: "Now", states: [], order: 0 },
+      }),
+    );
+    expect(memberLane.status).toBe(403);
+
+    const lane = await handle(
+      request("/lanes", {
+        method: "POST",
+        actor: "moderator",
+        body: { boardId: board.id, name: "Now", states: ["planned"], order: 0 },
+      }),
+    );
+    expect(lane.status).toBe(201);
+    const laneBody = (await lane.json()) as { id: string; name: string };
+    const renamed = await handle(
+      request("/lanes", {
+        method: "POST",
+        actor: "moderator",
+        body: {
+          id: laneBody.id,
+          boardId: board.id,
+          name: "Next",
+          states: ["planned"],
+          order: 1,
+        },
+      }),
+    );
+    expect(((await renamed.json()) as { name: string }).name).toBe("Next");
+  });
+
   test("private boards deny reads and writes without canReadBoard", async () => {
     const { db, close: closeDb } = await setupDatabase();
     close = closeDb;
