@@ -6,12 +6,25 @@
   "type": "module",
   "exports": {
     "./convex.config.js": "./src/component/convex.config.ts",
-    "./client": "./src/client/index.ts"
+    "./client": "./src/client/index.ts",
+    "./test": "./src/test.ts"
   },
-  "peerDependencies": { "convex": "^1.27.0" },
-  "devDependencies": { "convex": "^1.27.0", "typescript": "^5.8.3" },
+  "peerDependencies": {
+    "convex": "^1.27.0"
+  },
+  "dependencies": {
+    "@userr/core": "0.1.0"
+  },
+  "devDependencies": {
+    "convex": "^1.27.0",
+    "convex-helpers": "^0.1.124",
+    "convex-test": "^0.0.57",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
+  },
   "scripts": {
     "codegen": "convex codegen --component-dir src/component",
-    "typecheck": "tsc --noEmit --module NodeNext --moduleResolution NodeNext --target ES2022 --strict src/component/*.ts src/client/*.ts"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json"
   }
 }

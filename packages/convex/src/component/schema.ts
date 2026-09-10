@@ -24,7 +24,7 @@ export default defineSchema({
     .searchIndex("search", { searchField: "searchText", filterFields: ["boardId", "state"] })
     .vectorIndex("by_embedding", { vectorField: "embedding", dimensions: 1536, filterFields: ["boardId"] }),
   votes: defineTable({ itemId: v.id("items"), actorId: v.string(), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
-  comments: defineTable({ itemId: v.id("items"), actorId: v.string(), body: v.string(), parentId: v.optional(v.id("comments")), createdAt: v.number(), updatedAt: v.number() }).index("by_item", ["itemId"]),
+  comments: defineTable({ itemId: v.id("items"), actorId: v.string(), body: v.string(), parentId: v.optional(v.id("comments")), createdAt: v.number(), updatedAt: v.number(), deletedAt: v.optional(v.number()) }).index("by_item", ["itemId"]),
   events: defineTable({ itemId: v.id("items"), type: v.string(), actorId: v.optional(v.string()), payload: v.any(), createdAt: v.number() }).index("by_item_created", ["itemId", "createdAt"]),
-  subscriptions: defineTable({ itemId: v.id("items"), actorId: v.string(), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
+  subscriptions: defineTable({ itemId: v.id("items"), actorId: v.string(), notifyComments: v.optional(v.boolean()), notifyStatusChanges: v.optional(v.boolean()), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
 });

@@ -27,7 +27,7 @@ take from BetterAuth:
 - Only public functions reachable via `ctx.runQuery/runMutation/runAction`; `Id<>` crossing the boundary becomes `string`.
 - No `ctx.auth` inside component — app authenticates (`getAuthUserId`), passes `userId` explicitly.
 - Env isolated: declared in `defineComponent(name, {env: {...}})`, read inside handlers only; app supplies via `app.use(comp, {env})`.
-- Vector index: `defineTable({...}).vectorIndex("by_embedding", {vectorField: "embedding", dimensions: 1536, filterFields: ["boardId"]})`; query via `withVectorIndex`.
+- Vector index: `defineTable({...}).vectorIndex("by_embedding", {vectorField: "embedding", dimensions: 1536, filterFields: ["boardId"]})`; searched via `ctx.vectorSearch` in actions (the runtime exposes vector search on action context, not query context).
 - Pagination inside components: built-in `.paginate()` does not work — use `convex-helpers` `paginator` + `usePaginatedQuery`.
 - HTTP dark by default; expose via `app.use(comp, {httpPrefix})` under `.convex.site` only for RSS/webhook ingress. Scheduler/crons/actions are component-scoped (notification fan-out, stale auto-close, embedding backfill).
 - Cross-boundary callbacks via function handles (`createFunctionHandle` → `v.string()` → `ctx.runMutation/scheduler.runAfter`).

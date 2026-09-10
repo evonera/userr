@@ -69,13 +69,34 @@ export interface ActorResolver {
   current(): Actor | null | Promise<Actor | null>;
 }
 
+export interface BoardInput {
+  slug: string;
+  name: string;
+  visibility: Visibility;
+  allowedKinds: readonly FeedbackKind[];
+  statusOrder: readonly ItemState[];
+}
+
+export interface ItemInput {
+  boardId: Id;
+  title: string;
+  body: string;
+  kind: FeedbackKind;
+  authorId: string;
+  context?: Record<string, string | number | boolean | null>;
+}
+
 export interface FeedbackRepository {
+  createBoard(input: BoardInput): Promise<Board>;
+  createItem(input: ItemInput): Promise<FeedbackItem>;
   findItem(id: Id): Promise<FeedbackItem | null>;
   findCanonicalItem(id: Id): Promise<FeedbackItem | null>;
   listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState }): Promise<CursorPage<FeedbackItem>>;
   castVote(input: { itemId: Id; actorId: string }): Promise<{ added: boolean; voteCount: number }>;
+  uncastVote(input: { itemId: Id; actorId: string }): Promise<{ removed: boolean; voteCount: number }>;
   merge(input: MergePlan): Promise<void>;
   appendEvent(event: Omit<FeedbackEvent, "id">): Promise<void>;
+  listEvents(input: { itemId: Id }): Promise<readonly FeedbackEvent[]>;
 }
 
 export interface EmbeddingProvider {
