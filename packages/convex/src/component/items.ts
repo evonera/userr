@@ -197,6 +197,11 @@ export const setState = mutation({
   handler: async (ctx, args) => {
     const item = await requireItem(ctx, args.itemId);
     if (item.mergedInto) throw new Error("Merged items cannot change state.");
+    if (args.state === "merged") {
+      throw new Error(
+        'State "merged" is set only by the merge operation, which establishes mergedInto.',
+      );
+    }
     if (item.state === args.state) return null;
     const now = Date.now();
     await ctx.db.patch(args.itemId, { state: args.state, updatedAt: now });

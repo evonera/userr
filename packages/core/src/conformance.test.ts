@@ -138,6 +138,11 @@ function createMemoryRepository(): FeedbackRepository {
       if (!ITEM_STATES.includes(input.state)) {
         throw new Error(`Invalid state "${input.state}".`);
       }
+      if (input.state === "merged") {
+        throw new Error(
+          'State "merged" is set only by the merge operation, which establishes mergedInto.',
+        );
+      }
       if (item.mergedInto) throw new Error("Merged items cannot change state.");
       if (item.state === input.state) return;
       const from = item.state;
