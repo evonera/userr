@@ -64,6 +64,29 @@ test("add writes files and never overwrites conflicts", async () => {
   }
 });
 
+test("generated routes are fail-closed and escape feed output", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), nextProject());
+    const result = runIn(root, ["add", "--backend", "neon"]);
+    assert.equal(result.status, 0, result.stderr);
+    const apiRoute = readFileSync(
+      join(root, "app", "api", "userr", "[...path]", "route.ts"),
+      "utf8",
+    );
+    assert.match(apiRoute, /never trust a client-sent/);
+    assert.doesNotMatch(apiRoute, /x-actor/);
+    const rss = readFileSync(
+      join(root, "app", "changelog", "rss", "route.ts"),
+      "utf8",
+    );
+    assert.match(rss, /\]\]&gt;/);
+    assert.match(rss, /encodeURIComponent/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("add refuses non-Next projects", async () => {
   const root = await mkdtemp(join(tmpdir(), "userr-"));
   try {
