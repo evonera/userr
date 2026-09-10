@@ -29,6 +29,7 @@ test("add dry-run lists convex pages without writing", async () => {
     assert.match(result.stdout, /app\/feedback\/page\.tsx/);
     assert.match(result.stdout, /app\/roadmap\/page\.tsx/);
     assert.match(result.stdout, /app\/changelog\/rss\/route\.ts/);
+    assert.match(result.stdout, /app\/sitemap\.ts/);
     assert.match(result.stdout, /No files were written/);
     assert.equal(existsSync(join(root, "app", "feedback", "page.tsx")), false);
   } finally {
@@ -43,6 +44,37 @@ test("add dry-run lists the neon api route", async () => {
     const result = runIn(root, ["add", "--dry-run", "--backend", "neon"]);
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /app\/api\/userr\/\[\.\.\.path\]\/route\.ts/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("generated neon route exposes all handler methods", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), nextProject());
+    const result = runIn(root, ["add", "--backend", "neon"]);
+    assert.equal(result.status, 0, result.stderr);
+    const route = readFileSync(
+      join(root, "app", "api", "userr", "[...path]", "route.ts"),
+      "utf8",
+    );
+    assert.match(route, /GET, POST, PATCH, DELETE/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("init supports the neon backend without convex files", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), nextProject());
+    const result = runIn(root, ["init", "--backend", "neon"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(existsSync(join(root, "userr.config.ts")), true);
+    assert.equal(existsSync(join(root, "convex")), false);
+    const doctor = runIn(root, ["doctor"]);
+    assert.equal(doctor.status, 0, doctor.stderr);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
