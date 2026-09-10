@@ -220,8 +220,7 @@ describe("request handler", () => {
       identify: async (req) => req.headers.get("x-actor"),
     });
     const empty = await handle(request("/changelog?boardId=missing"));
-    expect(empty.status).toBe(200);
-    expect(await empty.json()).toMatchObject({ items: [] });
+    expect(empty.status).toBe(404);
 
     const board = (await (
       await handle(
@@ -259,5 +258,72 @@ describe("request handler", () => {
 
     const missingBoard = await handle(request("/lanes"));
     expect(missingBoard.status).toBe(400);
+  });
+
+  test("private boards deny reads and writes without canReadBoard", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const handle = createRequestHandler({
+      db,
+      identify: async (req) => req.headers.get("x-actor"),
+    });
+    const board = (await (
+      await handle(
+        request("/boards", {
+          method: "POST",
+          actor: "owner",
+          body: { slug: "secret", name: "Secret", visibility: "private" },
+        }),
+      )
+    ).json()) as { id: string };
+
+    // Anonymous and authenticated callers alike are denied.
+    expect((await handle(request(`/boards?slug=secret`))).status).toBe(403);
+    expect(
+      (await handle(request(`/items?boardId=${board.id}`))).status,
+    ).toBe(403);
+    expect((await handle(request(`/lanes?boardId=${board.id}`))).status).toBe(
+      403,
+    );
+    expect(
+      (
+        await handle(
+          request("/items", {
+            method: "POST",
+            actor: "alice",
+            body: { boardId: board.id, title: "T", body: "", kind: "idea" },
+          }),
+        )
+      ).status,
+    ).toBe(403);
+  });
+
+  test("canReadBoard hook opens private boards to allowed callers", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const handle = createRequestHandler({
+      db,
+      identify: async (req) => req.headers.get("x-actor"),
+      canReadBoard: async (actorId) => actorId === "teammate",
+    });
+    const board = (await (
+      await handle(
+        request("/boards", {
+          method: "POST",
+          actor: "owner",
+          body: { slug: "secret", name: "Secret", visibility: "private" },
+        }),
+      )
+    ).json()) as { id: string };
+
+    expect((await handle(request(`/boards?slug=secret`))).status).toBe(403);
+    const allowed = await handle(
+      request(`/boards?slug=secret`, { actor: "teammate" }),
+    );
+    expect(allowed.status).toBe(200);
+    const listed = await handle(
+      request(`/items?boardId=${board.id}`, { actor: "teammate" }),
+    );
+    expect(listed.status).toBe(200);
   });
 });

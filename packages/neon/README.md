@@ -42,8 +42,19 @@ const db = drizzle(new Pool({ connectionString: process.env.DATABASE_URL! }), {
 
 export const { GET, POST } = toNextJsHandler({
   db,
-  identify: async (req) => req.headers.get("x-actor"), // your session/JWT/API key
+  // Resolve identity from YOUR auth only: a signed session cookie, a verified
+  // JWT, or a lookup against your API-key table. SECURITY: never return a
+  // client-supplied header or body field as the actor ID — any visitor could
+  // impersonate another user. (The x-actor header in our tests exists only to
+  // inject actors without an auth stack; never ship it.)
+  identify: async (req) => {
+    const session = await readSession(req); // your auth library
+    return session?.userId ?? null;
+  },
   resolveRole: async (actorId) => (actorId === "owner" ? "owner" : "member"),
+  // Optional: who may read private boards (fail-closed without it).
+  canReadBoard: async (actorId, board) =>
+    board.visibility === "public" || actorId === "owner",
   transitions: [
     { from: "inbox", to: "open", roles: ["moderator"] },
     // ... your state machine
@@ -57,7 +68,11 @@ fail-closed when role resolution is absent. Status codes follow the core rule
 codes (`INVALID_TRANSITION` → 400, `PERMISSION_DENIED` → 403,
 `MERGE_CONFLICT` → 409).
 
-Reads are public; every write requires `identify` to return an actor ID.
+Reads are public on public boards; every write requires `identify` to return
+an actor ID. Private boards deny all reads and writes unless `canReadBoard`
+allows the caller (fail-closed without it). On Convex, the same boundary is
+the host wrapper's job: resolve identity/roles there and never expose
+component functions directly (see `fixtures/next-convex`).
 Reactivity is polling/SWR for now — documented honestly, no live-push claims.
 
 ## Host-run enrichment

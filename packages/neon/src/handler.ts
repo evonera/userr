@@ -11,6 +11,7 @@ import {
   createComment,
   createRepository,
   findSimilar,
+  getBoard,
   getBoardBySlug,
   getComment,
   listComments,
@@ -28,6 +29,15 @@ export interface HandlerOptions {
   resolveRole?: (actorId: string, boardId: string) => Promise<Role | null>;
   /** Allowed status transitions; enforced before setState when provided. */
   transitions?: readonly StatusTransition[];
+  /**
+   * Decide whether a caller may read a board's content. Defaults: public
+   * boards are world-readable; private boards deny everyone unless this hook
+   * is provided (fail-closed). The hook receives null for anonymous callers.
+   */
+  canReadBoard?: (
+    actorId: string | null,
+    board: { id: string; visibility: string },
+  ) => boolean | Promise<boolean>;
 }
 
 const MODERATOR_ROLES: readonly Role[] = ["moderator", "admin", "owner"];
@@ -92,7 +102,9 @@ function str(value: unknown, name: string): string {
  * for its framework integrations.
  *
  * Paths are matched on trailing resource segments so the handler works as a
- * catch-all (e.g. `/api/userr/[...path]`):
+ * catch-all (e.g. `/api/userr/[...path]`). Every board-scoped route passes a
+ * visibility gate: public boards are world-readable, private boards require
+ * the host's `canReadBoard` hook (fail-closed without it).
  *
  *   GET    /boards?slug=            board lookup
  *   POST   /boards                  create board (authenticated)
@@ -141,6 +153,41 @@ export function createRequestHandler(
     return actorId;
   }
 
+  async function optionalActor(req: Request): Promise<string | null> {
+    try {
+      return await options.identify(req);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Board visibility gate. Every board-scoped route — reads and writes —
+   * passes through here: public boards are world-readable, private boards
+   * require the host's canReadBoard hook (fail-closed without it).
+   */
+  async function requireBoard(req: Request, boardId: string) {
+    const board = await getBoard(options.db, boardId);
+    if (!board) throw new Error("Board not found.");
+    return checkBoard(req, board);
+  }
+
+  async function checkBoard(
+    req: Request,
+    board: { id: string; visibility: string },
+  ) {
+    if (board.visibility === "public") return board;
+    const actorId = await optionalActor(req);
+    const allowed = options.canReadBoard
+      ? await options.canReadBoard(actorId, {
+          id: board.id,
+          visibility: board.visibility,
+        })
+      : false;
+    if (!allowed) throw new Error("Permission denied for this board.");
+    return board;
+  }
+
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
     const segments = url.pathname.split("/").filter(Boolean);
@@ -160,6 +207,7 @@ export function createRequestHandler(
         if (!slug) return failure("slug is required.", 400);
         const board = await getBoardBySlug(options.db, slug);
         if (!board) return failure("Board not found.", 404);
+        await checkBoard(req, board);
         return json(board);
       }
       // POST /boards
@@ -184,6 +232,7 @@ export function createRequestHandler(
       if (req.method === "GET" && parts[0] === "items" && parts.length === 1) {
         const boardId = query.get("boardId");
         if (!boardId) return failure("boardId is required.", 400);
+        await requireBoard(req, boardId);
         return json(
           await repo.listItems({
             boardId,
@@ -197,8 +246,10 @@ export function createRequestHandler(
       if (req.method === "POST" && parts[0] === "items" && parts.length === 1) {
         const actorId = await actor(req);
         const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await requireBoard(req, boardId);
         const item = await repo.createItem({
-          boardId: str(body.boardId, "boardId"),
+          boardId,
           title: str(body.title, "title"),
           body: typeof body.body === "string" ? body.body : "",
           kind: (body.kind as never) ?? "feedback",
@@ -211,12 +262,14 @@ export function createRequestHandler(
         const boardId = query.get("boardId");
         const title = query.get("title") ?? "";
         if (!boardId) return failure("boardId is required.", 400);
+        await requireBoard(req, boardId);
         return json(await findSimilar(options.db, { boardId, title }));
       }
       // GET /changelog?boardId&limit&cursor
       if (req.method === "GET" && parts[0] === "changelog") {
         const boardId = query.get("boardId");
         if (!boardId) return failure("boardId is required.", 400);
+        await requireBoard(req, boardId);
         return json(
           await repo.listChangelog({
             boardId,
@@ -229,6 +282,7 @@ export function createRequestHandler(
       if (req.method === "GET" && parts[0] === "lanes") {
         const boardId = query.get("boardId");
         if (!boardId) return failure("boardId is required.", 400);
+        await requireBoard(req, boardId);
         return json(await repo.listLanes({ boardId }));
       }
       // Item-scoped routes: /items/:id/...
@@ -236,6 +290,7 @@ export function createRequestHandler(
         const itemId = parts[1];
         const item = await repo.findItem(itemId);
         if (!item) return failure("Feedback item not found.", 404);
+        await requireBoard(req, item.boardId);
 
         if (req.method === "GET" && parts.length === 2) {
           return json(item);

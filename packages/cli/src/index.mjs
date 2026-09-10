@@ -62,9 +62,9 @@ function changelogPages() {
 function rssRoute({ backend }) {
   const source =
     backend === "convex"
-      ? `// TODO: set NEXT_PUBLIC_CONVEX_URL and import { api } from "@/convex/_generated/api";\n  const { ConvexHttpClient } = await import("convex/browser");\n  const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);\n  const { page } = await client.query("changelog:list" as never, { boardId: "TODO-board-id", paginationOpts: { numItems: 20, cursor: null } } as never) as never as { page: { title: string; slug: string; body: string; publishedAt?: number }[] };`
-      : `// TODO: query published entries via @userr/neon listChangelog with your DATABASE_URL pool.\n  const page: { title: string; slug: string; body: string; publishedAt?: number }[] = [];`;
-  return `${OWNERSHIP}export async function GET() {\n  ${source}\n  const items = page.map((e) => \`    <item><title><![CDATA[\${e.title}]]></title><link>/changelog/\${e.slug}</link><pubDate>\${new Date(e.publishedAt ?? Date.now()).toUTCString()}</pubDate></item>\`).join("\\n");\n  const xml = \`<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Changelog</title>\${items}</channel></rss>\`;\n  return new Response(xml, { headers: { "content-type": "application/rss+xml" } });\n}\n`;
+      ? `// TODO: set NEXT_PUBLIC_CONVEX_URL and import { api } from "@/convex/_generated/api";\n  // Only expose public boards here; gate private boards behind your auth.\n  const { ConvexHttpClient } = await import("convex/browser");\n  const client = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);\n  const { page } = await client.query("changelog:list" as never, { boardId: "TODO-board-id", paginationOpts: { numItems: 20, cursor: null } } as never) as never as { page: { title: string; slug: string; body: string; publishedAt?: number }[] };`
+      : `// TODO: query published entries via @userr/neon listChangelog with your DATABASE_URL pool.\n  // Only expose public boards here; gate private boards behind your auth.\n  const page: { title: string; slug: string; body: string; publishedAt?: number }[] = [];`;
+  return `${OWNERSHIP}// XML-escape titles: a literal "]]>" inside CDATA would terminate the section\n// and corrupt or inject XML into the feed. Slugs are path-encoded below.\nfunction cdata(text) {\n  return String(text ?? "").replaceAll("]]>", "]]&gt;");\n}\nexport async function GET() {\n  ${source}\n  const items = page.map((e) => \`    <item><title><![CDATA[\${cdata(e.title)}]]></title><link>/changelog/\${encodeURIComponent(e.slug)}</link><pubDate>\${new Date(e.publishedAt ?? Date.now()).toUTCString()}</pubDate></item>\`).join("\\n");\n  const xml = \`<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Changelog</title>\${items}</channel></rss>\`;\n  return new Response(xml, { headers: { "content-type": "application/rss+xml" } });\n}\n`;
 }
 
 function neonApiRoute() {
@@ -73,13 +73,20 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { toNextJsHandler } from "@userr/neon/handler";
 import * as schema from "@userr/neon/schema";
 
-// TODO: install pg + drizzle-orm, set DATABASE_URL, and wire identify/resolveRole to your auth.
+// TODO: install pg + drizzle-orm, set DATABASE_URL, and wire identify to your
+// auth (session cookie, JWT, or API key). SECURITY: never trust a client-sent
+// header or body field as the actor ID — any visitor could impersonate another
+// user. This scaffold refuses all writes until you replace the stub below.
 const pool = new Pool({ connectionString: process.env.DATABASE_URL! });
 const db = drizzle(pool, { schema });
 
 export const { GET, POST } = toNextJsHandler({
   db,
-  identify: async (req) => req.headers.get("x-actor"),
+  identify: async () => {
+    throw new Error(
+      "Wire identify to your auth (e.g. read your session cookie and return the user ID).",
+    );
+  },
 });
 `;
 }
