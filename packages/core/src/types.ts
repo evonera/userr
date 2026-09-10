@@ -94,6 +94,7 @@ export interface FeedbackRepository {
   listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState }): Promise<CursorPage<FeedbackItem>>;
   castVote(input: { itemId: Id; actorId: string }): Promise<{ added: boolean; voteCount: number }>;
   uncastVote(input: { itemId: Id; actorId: string }): Promise<{ removed: boolean; voteCount: number }>;
+  setState(input: { itemId: Id; state: ItemState; actorId: string }): Promise<void>;
   merge(input: MergePlan): Promise<void>;
   appendEvent(event: Omit<FeedbackEvent, "id">): Promise<void>;
   listEvents(input: { itemId: Id }): Promise<readonly FeedbackEvent[]>;

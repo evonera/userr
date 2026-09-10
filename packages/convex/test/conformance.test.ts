@@ -12,7 +12,6 @@ import {
   type ItemState,
   type MergePlan,
 } from "@userr/core";
-
 import { api } from "../src/component/_generated/api.js";
 import { setup, type TestInstance } from "./setup.js";
 
@@ -123,6 +122,17 @@ function convexRepository(t: TestInstance): FeedbackRepository {
         itemId: input.itemId as never,
         actorId: input.actorId,
       })) as { removed: boolean; voteCount: number };
+    },
+    async setState(input: {
+      itemId: string;
+      state: ItemState;
+      actorId: string;
+    }): Promise<void> {
+      await t.mutation(api.items.setState, {
+        itemId: input.itemId as never,
+        state: input.state as never,
+        actorId: input.actorId,
+      });
     },
     async merge(plan: MergePlan): Promise<void> {
       await t.mutation(api.items.merge, {

@@ -127,6 +127,27 @@ function createMemoryRepository(): FeedbackRepository {
       });
       return { removed: true, voteCount: item.voteCount };
     },
+    async setState(input: {
+      itemId: string;
+      state: ItemState;
+      actorId: string;
+    }): Promise<void> {
+      const item = items.get(input.itemId);
+      assert.ok(item, "item must exist to change state");
+      if (item.mergedInto) throw new Error("Merged items cannot change state.");
+      if (item.state === input.state) return;
+      const from = item.state;
+      item.state = input.state;
+      item.updatedAt = Date.now();
+      events.push({
+        id: nextId("evt"),
+        itemId: input.itemId,
+        type: "state_changed",
+        actorId: input.actorId,
+        createdAt: Date.now(),
+        payload: { from, to: input.state },
+      });
+    },
     async merge(plan: MergePlan): Promise<void> {
       const source = items.get(plan.sourceId);
       const target = items.get(plan.targetId);
