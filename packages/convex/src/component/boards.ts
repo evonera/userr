@@ -1,8 +1,10 @@
 import { paginationOptsValidator } from "convex/server";
+import { paginator } from "convex-helpers/server/pagination";
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server.js";
 import { publicBoard, visibility } from "./model.js";
+import schema from "./schema.js";
 
 export const create = mutation({
   args: {
@@ -64,7 +66,7 @@ export const list = query({
     continueCursor: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, args) => {
-    return await ctx.db
+    return await paginator(ctx.db, schema)
       .query("boards")
       .order("desc")
       .paginate(args.paginationOpts);

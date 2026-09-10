@@ -11,6 +11,10 @@ export class FeedbackRuleError extends Error {
  *  anything outside this list — never let an unconstrained text column decide
  *  what a state is. `merged` is set only by the merge operation, never by a
  *  direct transition. */
+/** Every state the store may persist. Adapters and route layers must reject
+ *  anything outside this list — never let an unconstrained text column decide
+ *  what a state is. `merged` is set only by the merge operation, never by a
+ *  direct transition. */
 export const ITEM_STATES: readonly ItemState[] = [
   "inbox",
   "open",
@@ -20,6 +24,12 @@ export const ITEM_STATES: readonly ItemState[] = [
   "closed",
   "merged",
 ];
+
+/** Fixed vector width declared by every backend's embedding index
+ *  (Convex vectorIndex dimensions, Postgres vector(N)). Adapters must reject
+ *  anything else at the boundary — a wrong-width vector silently corrupts
+ *  similarity results. */
+export const EMBEDDING_DIMENSIONS = 1536;
 
 export function assertTransition(input: {
   current: ItemState;

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 
+import { EMBEDDING_DIMENSIONS } from "@userr/core";
 import {
   action,
   internalQuery,
@@ -52,6 +53,11 @@ export const storeEmbedding = mutation({
   handler: async (ctx, args) => {
     if (args.embedding.length === 0) {
       throw new Error("Embedding must not be empty.");
+    }
+    if (args.embedding.length !== EMBEDDING_DIMENSIONS) {
+      throw new Error(
+        `Embedding must have ${EMBEDDING_DIMENSIONS} dimensions, got ${args.embedding.length}.`,
+      );
     }
     const item = await ctx.db.get(args.itemId);
     if (!item) throw new Error("Feedback item not found.");

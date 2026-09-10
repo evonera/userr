@@ -13,11 +13,11 @@
     "convex": "^1.27.0"
   },
   "dependencies": {
-    "@userr/core": "0.1.0"
+    "@userr/core": "0.1.0",
+    "convex-helpers": "^0.1.124"
   },
   "devDependencies": {
     "convex": "^1.27.0",
-    "convex-helpers": "^0.1.124",
     "convex-test": "^0.0.57",
     "typescript": "^5.8.3",
     "vitest": "^2.1.9"

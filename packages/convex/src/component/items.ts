@@ -304,6 +304,11 @@ export const merge = mutation({
     ) {
       throw new Error("Invalid merge target.");
     }
+    // Mirrors core createMergePlan: merging away a shipped record would lose
+    // a completed canonical entry.
+    if (source.state === "shipped" || target.state === "merged") {
+      throw new Error("This merge would lose a completed or canonical record.");
+    }
     const now = Date.now();
     const sourceVotes = await ctx.db
       .query("votes")
