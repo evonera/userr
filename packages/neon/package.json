@@ -10,7 +10,6 @@
     "./handler": "./src/handler.ts"
   },
   "peerDependencies": {
-    "drizzle-orm": "^0.44.0",
     "pg": "^8.0.0"
   },
   "dependencies": {
