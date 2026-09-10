@@ -334,8 +334,21 @@ describe("items.findSimilar", () => {
     expect(related.similar.map((s) => s.id)).toContain(original);
   });
 
-  test("returns empty for blank titles", async () => {
+  test("survives multiple live items with identical titles", async () => {
+    // Regression: normalized titles are non-unique, so the exact lookup must
+    // not use .unique() — two live duplicates used to throw.
     const t = setup();
+    const boardId = await createBoard(t);
+    const first = await createItem(t, boardId, { title: "Dark mode" });
+    const second = await createItem(t, boardId, { title: "dark  MODE" });
+    const result = await t.query(api.items.findSimilar, {
+      boardId,
+      title: "Dark Mode",
+    });
+    expect([first, second]).toContain(result.exact);
+  });
+
+  test("returns empty for blank titles", async () => {    const t = setup();
     const boardId = await createBoard(t);
     const result = await t.query(api.items.findSimilar, {
       boardId,
