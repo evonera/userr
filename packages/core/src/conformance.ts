@@ -376,6 +376,9 @@ export async function runConformanceSuite(
     moderation: "pending",
   });
   assert.ok(queued.items.some((item) => item.id === target.id));
+  // Public (unfiltered) reads hide pending items until reviewed.
+  const pub = await repo.listItems({ boardId: board.id, limit: 20 });
+  assert.ok(!pub.items.some((item) => item.id === target.id));
   await repo.reviewItem({
     itemId: target.id,
     decision: "approved",

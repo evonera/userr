@@ -177,6 +177,33 @@ export function createRequestHandler(
     }
   }
 
+  /** Non-throwing moderator check for read paths. Moderators see hidden
+   *  (pending/rejected/spam) content; everyone else gets the public view. */
+  async function isModerator(req: Request, boardId: string): Promise<boolean> {
+    if (!options.resolveRole) return false;
+    try {
+      const actorId = await options.identify(req);
+      if (!actorId) return false;
+      const role = await options.resolveRole(actorId, boardId);
+      return !!role && MODERATOR_ROLES.includes(role);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Single-item read gate: hidden items 404 for non-moderators. */
+  async function visibleItem(req: Request, itemId: string) {
+    const item = await repo.findItem(itemId);
+    if (!item) return null;
+    if (
+      item.moderation !== "approved" &&
+      !(await isModerator(req, item.boardId))
+    ) {
+      return null;
+    }
+    return item;
+  }
+
   /**
    * Board visibility gate. Every board-scoped route — reads and writes —
    * passes through here: public boards are world-readable, private boards
@@ -257,12 +284,14 @@ export function createRequestHandler(
         const boardId = query.get("boardId");
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
+        const staff = await isModerator(req, boardId);
         return json(
           await repo.listItems({
             boardId,
             state: (query.get("state") as never) ?? undefined,
             limit: Math.min(Number(query.get("limit") ?? 20), 100),
             cursor: query.get("cursor") ?? undefined,
+            ...(staff ? { includeModerated: true } : {}),
           }),
         );
       }
@@ -287,7 +316,14 @@ export function createRequestHandler(
         const title = query.get("title") ?? "";
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
-        return json(await findSimilar(options.db, { boardId, title }));
+        const staff = await isModerator(req, boardId);
+        return json(
+          await findSimilar(options.db, {
+            boardId,
+            title,
+            ...(staff ? { includeModerated: true } : {}),
+          }),
+        );
       }
       // GET /changelog?boardId&limit&cursor
       if (req.method === "GET" && parts[0] === "changelog") {
@@ -497,7 +533,7 @@ export function createRequestHandler(
       // Item-scoped routes: /items/:id/...
       if (parts[0] === "items" && parts[1]) {
         const itemId = parts[1];
-        const item = await repo.findItem(itemId);
+        const item = await visibleItem(req, itemId);
         if (!item) return failure("Feedback item not found.", 404);
         await requireBoard(req, item.boardId);
 

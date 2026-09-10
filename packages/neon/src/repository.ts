@@ -364,11 +364,16 @@ export function createRepository(db: Database): FeedbackRepository {
       limit: number;
       state?: ItemState;
       moderation?: ModerationState;
+      // Public reads hide rejected/spam/pending by default; admin surfaces
+      // pass includeModerated (or an explicit moderation filter) instead.
+      includeModerated?: boolean;
     }): Promise<CursorPage<FeedbackItem>> {
       const conditions = [eq(schema.items.boardId, input.boardId)];
       if (input.state) conditions.push(eq(schema.items.state, input.state));
       if (input.moderation) {
         conditions.push(eq(schema.items.moderation, input.moderation));
+      } else if (!input.includeModerated) {
+        conditions.push(eq(schema.items.moderation, "approved"));
       }
       if (input.cursor) {
         const decoded = JSON.parse(
@@ -407,6 +412,9 @@ export function createRepository(db: Database): FeedbackRepository {
       return db.transaction(async (tx) => {
         const item = await requireItem(tx as Database, input.itemId);
         if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+        if (item.moderation === "rejected" || item.moderation === "spam") {
+          throw new Error("Feedback item is unavailable.");
+        }
         await requireUnblocked(tx as Database, item.boardId, input.actorId);
         const inserted = await tx
           .insert(schema.votes)
@@ -1145,7 +1153,7 @@ export function createRepository(db: Database): FeedbackRepository {
  *  No AI dependency; vector candidates are a separate call. */
 export async function findSimilar(
   db: Database,
-  input: { boardId: string; title: string; limit?: number },
+  input: { boardId: string; title: string; limit?: number; includeModerated?: boolean },
 ): Promise<{
   exact: string | null;
   similar: { id: string; title: string; voteCount: number }[];
@@ -1163,7 +1171,11 @@ export async function findSimilar(
       ),
     )
     .limit(5);
-  const exactHit = exactCandidates.find((item) => !item.mergedInto);
+  const visible = (moderation: string) =>
+    input.includeModerated || moderation === "approved";
+  const exactHit = exactCandidates.find(
+    (item) => !item.mergedInto && visible(item.moderation),
+  );
   const exact = exactHit ? exactHit.id : null;
   const like = await db
     .select()
@@ -1179,6 +1191,7 @@ export async function findSimilar(
   const similar = [];
   for (const candidate of like) {
     if (candidate.mergedInto) continue;
+    if (!visible(candidate.moderation)) continue;
     if (exact !== null && candidate.id === exact) continue;
     similar.push({
       id: candidate.id,
@@ -1289,6 +1302,9 @@ export async function createComment(
     const t = tx as Database;
     const item = await requireItem(t, input.itemId);
     if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+    if (item.moderation === "rejected" || item.moderation === "spam") {
+      throw new Error("Feedback item is unavailable.");
+    }
     await requireUnblocked(t, item.boardId, input.actorId);
     if (input.parentId) {
       const parents = await t

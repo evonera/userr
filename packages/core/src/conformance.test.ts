@@ -135,12 +135,15 @@ function createMemoryRepository(): FeedbackRepository {
       limit: number;
       state?: ItemState;
       moderation?: ModerationState;
+      includeModerated?: boolean;
     }): Promise<CursorPage<FeedbackItem>> {
       const all = [...items.values()]
         .filter((item) => item.boardId === input.boardId)
         .filter((item) => !input.state || item.state === input.state)
-        .filter(
-          (item) => !input.moderation || item.moderation === input.moderation,
+        .filter((item) =>
+          input.moderation
+            ? item.moderation === input.moderation
+            : input.includeModerated || item.moderation === "approved",
         )
         .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
       const start = input.cursor ? Number(input.cursor) : 0;

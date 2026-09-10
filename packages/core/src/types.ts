@@ -131,7 +131,7 @@ export interface FeedbackRepository {
   createItem(input: ItemInput): Promise<FeedbackItem>;
   findItem(id: Id): Promise<FeedbackItem | null>;
   findCanonicalItem(id: Id): Promise<FeedbackItem | null>;
-  listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState; moderation?: ModerationState }): Promise<CursorPage<FeedbackItem>>;
+  listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState; moderation?: ModerationState; includeModerated?: boolean }): Promise<CursorPage<FeedbackItem>>;
   castVote(input: { itemId: Id; actorId: string }): Promise<{ added: boolean; voteCount: number }>;
   uncastVote(input: { itemId: Id; actorId: string }): Promise<{ removed: boolean; voteCount: number }>;
   setState(input: { itemId: Id; state: ItemState; actorId: string }): Promise<void>;

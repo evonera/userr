@@ -52,6 +52,9 @@ export const list = query({
     boardId: v.id("boards"),
     state: v.optional(itemState),
     moderation: v.optional(moderationState),
+    // Public reads hide rejected/spam/pending by default; admin surfaces
+    // (triage, moderation queue) pass includeModerated through host wrappers.
+    includeModerated: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   returns: pageOfItems,
@@ -70,9 +73,11 @@ export const list = query({
     // moderation queue is `moderation: "pending"` (filtered in TypeScript:
     // moderation has no dedicated index yet).
     const result = await scoped.order("desc").paginate(args.paginationOpts);
-    const page = result.page.filter(
-      (item) => !args.moderation || item.moderation === args.moderation,
-    );
+    const page = result.page.filter((item) => {
+      if (args.moderation) return item.moderation === args.moderation;
+      if (args.includeModerated) return true;
+      return (item.moderation ?? "approved") === "approved";
+    });
     return { ...result, page: page.map(toPublicItem) };
   },
 });
@@ -87,6 +92,7 @@ export const listTop = query({
     boardId: v.id("boards"),
     state: v.optional(itemState),
     limit: v.optional(v.number()),
+    includeModerated: v.optional(v.boolean()),
   },
   returns: v.array(publicItem),
   handler: async (ctx, args) => {
@@ -101,6 +107,11 @@ export const listTop = query({
       .collect();
     return items
       .filter((item) => !item.mergedInto)
+      .filter(
+        (item) =>
+          args.includeModerated ||
+          (item.moderation ?? "approved") === "approved",
+      )
       .sort((a, b) => b.voteCount - a.voteCount || b.createdAt - a.createdAt)
       .slice(0, limit)
       .map(toPublicItem);
@@ -108,7 +119,11 @@ export const listTop = query({
 });
 
 export const get = query({
-  args: { itemId: v.id("items"), viewerActorId: v.optional(v.string()) },
+  args: {
+    itemId: v.id("items"),
+    viewerActorId: v.optional(v.string()),
+    includeModerated: v.optional(v.boolean()),
+  },
   returns: v.union(
     v.object({
       item: publicItem,
@@ -120,6 +135,9 @@ export const get = query({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) return null;
+    if (!args.includeModerated && (item.moderation ?? "approved") !== "approved") {
+      return null;
+    }
     let viewerHasVoted = false;
     let viewerIsSubscribed = false;
     if (args.viewerActorId) {
@@ -297,6 +315,12 @@ export const vote = mutation({
     const item = await requireItem(ctx, args.itemId);
     if (item.mergedInto) throw new Error("Feedback item is unavailable.");
     await requireUnblocked(ctx, item.boardId, args.actorId);
+    if (
+      item.moderation === "rejected" ||
+      item.moderation === "spam"
+    ) {
+      throw new Error("Feedback item is unavailable.");
+    }
     const prior = await ctx.db
       .query("votes")
       .withIndex("by_item_actor", (q) =>
@@ -468,6 +492,7 @@ export const findSimilar = query({
     boardId: v.id("boards"),
     title: v.string(),
     limit: v.optional(v.number()),
+    includeModerated: v.optional(v.boolean()),
   },
   returns: v.object({
     exact: v.union(v.id("items"), v.null()),
@@ -492,7 +517,12 @@ export const findSimilar = query({
         q.eq("boardId", args.boardId).eq("normalizedTitle", normalized),
       )
       .take(5);
-    const exactHit = exactCandidates.find((item) => !item.mergedInto);
+    const exactHit = exactCandidates.find(
+      (item) =>
+        !item.mergedInto &&
+        (args.includeModerated ||
+          (item.moderation ?? "approved") === "approved"),
+    );
     const exact = exactHit ? exactHit._id : null;
     const candidates = await ctx.db
       .query("items")
@@ -503,6 +533,12 @@ export const findSimilar = query({
     const similar: { id: Id<"items">; title: string; voteCount: number }[] = [];
     for (const candidate of candidates) {
       if (candidate.mergedInto) continue;
+      if (
+        !args.includeModerated &&
+        (candidate.moderation ?? "approved") !== "approved"
+      ) {
+        continue;
+      }
       if (exact !== null && candidate._id === exact) continue;
       similar.push({
         id: candidate._id,

@@ -28,8 +28,7 @@ describe("moderation", () => {
     expect(got?.item.moderation).toBe("approved");
   });
 
-  test("blocked actors cannot write", async () => {
-    const t = setup();
+  test("blocked actors cannot write", async () => {    const t = setup();
     const boardId = await createBoard(t);
     const itemId = await createItem(t, boardId);
     await t.mutation(api.moderation.block, {
@@ -83,5 +82,34 @@ describe("moderation", () => {
     ).rejects.toThrow();
     const got = await t.query(api.items.get, { itemId: a });
     expect(got?.item.state).toBe("planned");
+  });
+
+  test("spam is hidden from public reads, visible to moderators", async () => {
+    const t = setup();
+    const boardId = await createBoard(t);
+    const itemId = await createItem(t, boardId, { title: "Spammy" });
+    await t.mutation(api.moderation.report, {
+      itemId,
+      actorId: "alice",
+    });
+    await t.mutation(api.moderation.review, {
+      itemId,
+      decision: "spam",
+      actorId: "moderator",
+    });
+    expect(await t.query(api.items.get, { itemId })).toBeNull();
+    const viaFlag = await t.query(api.items.get, {
+      itemId,
+      includeModerated: true,
+    });
+    expect(viaFlag?.item.moderation).toBe("spam");
+    const listed = await t.query(api.items.list, {
+      boardId,
+      paginationOpts: { numItems: 10, cursor: null },
+    });
+    expect(listed.page.map((i) => i._id)).not.toContain(itemId);
+    await expect(
+      t.mutation(api.items.vote, { itemId, actorId: "carol" }),
+    ).rejects.toThrow();
   });
 });

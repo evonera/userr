@@ -79,6 +79,9 @@ export const create = mutation({
       throw new Error("Feedback item is unavailable.");
     }
     await requireUnblocked(ctx, item.boardId, args.actorId);
+    if (item.moderation === "rejected" || item.moderation === "spam") {
+      throw new Error("Feedback item is unavailable.");
+    }
     const body = checkBody(args.body);
     if (args.parentId) {
       const parent = await ctx.db.get(args.parentId);

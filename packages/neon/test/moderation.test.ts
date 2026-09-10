@@ -187,4 +187,35 @@ describe("moderation routes", () => {
     });
     expect(allowed.status).toBe(201);
   });
+
+  test("spam is hidden from public reads, visible to moderators", async () => {
+    const { call, board, db } = await setup();
+    const created = await call("/items", {
+      method: "POST",
+      actor: "alice",
+      body: { boardId: board.id, title: "Spammy", body: "", kind: "idea" },
+    });
+    const item = created.body as { id: string };
+    const repo = createRepository(db);
+    await repo.reportItem({ itemId: item.id, actorId: "alice" });
+    await repo.reviewItem({
+      itemId: item.id,
+      decision: "spam",
+      actorId: "moderator",
+    });
+
+    expect((await call(`/items/${item.id}`)).status).toBe(404);
+    const staff = await call(`/items/${item.id}`, { actor: "moderator" });
+    expect(staff.status).toBe(200);
+    const listedRes = await call(`/items?boardId=${board.id}`);
+    expect(
+      ((listedRes.body as { items: { id: string }[] }).items).map((i) => i.id),
+    ).not.toContain(item.id);
+    const staffList = await call(`/items?boardId=${board.id}`, {
+      actor: "moderator",
+    });
+    expect(
+      ((staffList.body as { items: { id: string }[] }).items).map((i) => i.id),
+    ).toContain(item.id);
+  });
 });
