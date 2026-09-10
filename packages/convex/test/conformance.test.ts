@@ -4,6 +4,7 @@ import {
   runConformanceSuite,
   type Board,
   type BoardInput,
+  type ChangelogEntry,
   type CursorPage,
   type FeedbackEvent,
   type FeedbackItem,
@@ -11,6 +12,7 @@ import {
   type ItemInput,
   type ItemState,
   type MergePlan,
+  type RoadmapLane,
 } from "@userr/core";
 import { api } from "../src/component/_generated/api.js";
 import { setup, type TestInstance } from "./setup.js";
@@ -154,6 +156,73 @@ function convexRepository(t: TestInstance): FeedbackRepository {
       itemId: string;
     }): Promise<readonly FeedbackEvent[]> {
       return collectEvents(input.itemId);
+    },
+    async publishChangelogEntry(input) {
+      const id = (await t.mutation(api.changelog.publish, {
+        boardId: input.boardId as never,
+        title: input.title,
+        body: input.body,
+        ...(input.version ? { version: input.version } : {}),
+        linkedItemIds: [...input.linkedItemIds] as never,
+        ...(input.publishedAt ? { publishedAt: input.publishedAt } : {}),
+      })) as string;
+      const page = (await t.query(api.changelog.list, {
+        boardId: input.boardId as never,
+        paginationOpts: { numItems: 50, cursor: null },
+      })) as { page: Record<string, unknown>[] };
+      const doc = page.page.find((entry) => entry._id === id);
+      if (!doc) throw new Error("changelog entry creation failed");
+      const { _id, _creationTime, ...rest } = doc;
+      void _creationTime;
+      return { id: _id, ...rest } as ChangelogEntry;
+    },
+    async listChangelog(input) {
+      const page = (await t.query(api.changelog.list, {
+        boardId: input.boardId as never,
+        paginationOpts: {
+          numItems: input.limit,
+          cursor: input.cursor ?? null,
+        },
+      })) as {
+        page: Record<string, unknown>[];
+        isDone: boolean;
+        continueCursor: string | null;
+      };
+      return {
+        items: page.page.map((doc) => {
+          const { _id, _creationTime, ...rest } = doc;
+          void _creationTime;
+          return { id: _id, ...rest } as ChangelogEntry;
+        }),
+        nextCursor: page.isDone ? null : page.continueCursor,
+      };
+    },
+    async saveLane(input) {
+      const id = (await t.mutation(api.roadmap.save, {
+        ...(input.id ? { id: input.id as never } : {}),
+        boardId: input.boardId as never,
+        name: input.name,
+        states: [...input.states],
+        order: input.order,
+      })) as string;
+      const lanes = (await t.query(api.roadmap.list, {
+        boardId: input.boardId as never,
+      })) as Record<string, unknown>[];
+      const doc = lanes.find((lane) => lane._id === id);
+      if (!doc) throw new Error("lane save failed");
+      const { _id, _creationTime, ...rest } = doc;
+      void _creationTime;
+      return { id: _id, ...rest } as RoadmapLane;
+    },
+    async listLanes(input) {
+      const lanes = (await t.query(api.roadmap.list, {
+        boardId: input.boardId as never,
+      })) as Record<string, unknown>[];
+      return lanes.map((doc) => {
+        const { _id, _creationTime, ...rest } = doc;
+        void _creationTime;
+        return { id: _id, ...rest } as RoadmapLane;
+      });
     },
   };
 }

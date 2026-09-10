@@ -6,13 +6,17 @@ import { ITEM_STATES } from "./rules.js";
 import type {
   Board,
   BoardInput,
+  ChangelogEntry,
+  ChangelogInput,
   CursorPage,
   FeedbackEvent,
   FeedbackItem,
   FeedbackRepository,
   ItemInput,
   ItemState,
+  LaneInput,
   MergePlan,
+  RoadmapLane,
 } from "./types.js";
 
 /** Minimal in-memory adapter. Exists only to prove the conformance suite itself
@@ -23,6 +27,8 @@ function createMemoryRepository(): FeedbackRepository {
   const items = new Map<string, FeedbackItem>();
   const votes = new Map<string, Set<string>>();
   const events: FeedbackEvent[] = [];
+  const changelog = new Map<string, ChangelogEntry>();
+  const lanes = new Map<string, RoadmapLane>();
   const nextId = (prefix: string) => `${prefix}_${++seq}`;
 
   return {
@@ -188,6 +194,71 @@ function createMemoryRepository(): FeedbackRepository {
       itemId: string;
     }): Promise<readonly FeedbackEvent[]> {
       return events.filter((event) => event.itemId === input.itemId);
+    },
+    async publishChangelogEntry(
+      input: ChangelogInput,
+    ): Promise<ChangelogEntry> {
+      const now = Date.now();
+      const id = nextId("entry");
+      const entry: ChangelogEntry = {
+        id,
+        boardId: input.boardId,
+        title: input.title,
+        slug: `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 72)}-${id}`,
+        body: input.body,
+        version: input.version,
+        linkedItemIds: [...input.linkedItemIds],
+        publishedAt: input.publishedAt,
+        createdAt: now,
+      };
+      changelog.set(id, entry);
+      return entry;
+    },
+    async listChangelog(input: {
+      boardId: string;
+      cursor?: string;
+      limit: number;
+    }): Promise<CursorPage<ChangelogEntry>> {
+      const all = [...changelog.values()]
+        .filter((entry) => entry.boardId === input.boardId)
+        .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id));
+      const start = input.cursor ? Number(input.cursor) : 0;
+      const page = all.slice(start, start + input.limit);
+      const next = start + input.limit;
+      return {
+        items: page,
+        nextCursor: next < all.length ? String(next) : null,
+      };
+    },
+    async saveLane(input: LaneInput): Promise<RoadmapLane> {
+      if (input.id) {
+        const lane = lanes.get(input.id);
+        assert.ok(lane, "lane must exist to update");
+        const updated: RoadmapLane = {
+          ...lane,
+          name: input.name,
+          states: [...input.states],
+          order: input.order,
+        };
+        lanes.set(input.id, updated);
+        return updated;
+      }
+      const lane: RoadmapLane = {
+        id: nextId("lane"),
+        boardId: input.boardId,
+        name: input.name,
+        states: [...input.states],
+        order: input.order,
+      };
+      lanes.set(lane.id, lane);
+      return lane;
+    },
+    async listLanes(input: {
+      boardId: string;
+    }): Promise<readonly RoadmapLane[]> {
+      return [...lanes.values()]
+        .filter((lane) => lane.boardId === input.boardId)
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
     },
   };
 }

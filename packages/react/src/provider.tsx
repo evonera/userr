@@ -1,22 +1,62 @@
-import { createContext, useContext, type CSSProperties, type PropsWithChildren } from "react";
+import {
+  createContext,
+  useContext,
+  type CSSProperties,
+  type PropsWithChildren,
+} from "react";
+
+import { defaultMessages, type FeedbackMessages } from "./messages.js";
 
 export interface FeedbackTheme {
   accent?: string;
   surface?: string;
   text?: string;
+  muted?: string;
+  border?: string;
   radius?: string;
 }
 
-const FeedbackThemeContext = createContext<FeedbackTheme>({});
-
-export function FeedbackProvider({ theme = {}, children }: PropsWithChildren<{ theme?: FeedbackTheme }>) {
-  const style = {
-    "--lf-accent": theme.accent ?? "#4f46e5",
-    "--lf-surface": theme.surface ?? "#ffffff",
-    "--lf-text": theme.text ?? "#111827",
-    "--lf-radius": theme.radius ?? "0.75rem",
-  } as CSSProperties;
-  return <FeedbackThemeContext.Provider value={theme}><section style={style}>{children}</section></FeedbackThemeContext.Provider>;
+interface FeedbackContextValue {
+  theme: FeedbackTheme;
+  messages: FeedbackMessages;
 }
 
-export const useFeedbackTheme = () => useContext(FeedbackThemeContext);
+const FeedbackContext = createContext<FeedbackContextValue>({
+  theme: {},
+  messages: defaultMessages,
+});
+
+export interface FeedbackProviderProps {
+  theme?: FeedbackTheme;
+  messages?: Partial<FeedbackMessages>;
+}
+
+export function FeedbackProvider({
+  theme = {},
+  messages = {},
+  children,
+}: PropsWithChildren<FeedbackProviderProps>) {
+  const style = {
+    "--userr-accent": theme.accent ?? "#4f46e5",
+    "--userr-surface": theme.surface ?? "#ffffff",
+    "--userr-text": theme.text ?? "#111827",
+    "--userr-muted": theme.muted ?? "#6b7280",
+    "--userr-border": theme.border ?? "#e5e7eb",
+    "--userr-radius": theme.radius ?? "0.75rem",
+  } as CSSProperties;
+  const value: FeedbackContextValue = {
+    theme,
+    messages: { ...defaultMessages, ...messages },
+  };
+  return (
+    <FeedbackContext.Provider value={value}>
+      <section style={style}>{children}</section>
+    </FeedbackContext.Provider>
+  );
+}
+
+export const useFeedbackTheme = () =>
+  useContext(FeedbackContext).theme;
+
+export const useFeedbackMessages = () =>
+  useContext(FeedbackContext).messages;

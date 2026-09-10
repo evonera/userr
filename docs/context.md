@@ -58,8 +58,28 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Phase 2 is open as a PR (unmerged): `phase-2-neon-parity`. Next: review, merge,
-then Phase 3 (public portal).
+Phase 3 is open as a PR (unmerged): `phase-3-public-portal`. Next: review, merge,
+then Phase 4 (triage and closed loop).
+
+## Completed (Phase 3 branch, in review)
+
+- Storage: `changelogEntries` + `roadmapLanes` on both backends (Convex schema +
+  component queries; Drizzle tables + migration 0002). Conformance steps 11–12
+  (publish/list with links; lane save/update/list in order) pass on all three
+  adapters. Milestones table deferred — lanes + entries ship the public views.
+- `@userr/react`: presentational surfaces over backend-agnostic views
+  (BoardList, ItemDetail, CommentThread, RoadmapBoard, ChangelogList/Entry,
+  SubmitDialog, VoteButton, StatusBadge) with `className` passthrough,
+  `--userr-*` theme vars (renamed from stale `--lf-*`), `messages` dict for
+  copy overrides, Radix Tabs/Dialog where they earn it. Split data layer:
+  `@userr/react/convex` hooks (optional `convex` peer) + `@userr/react/rest`
+  fetch client with SWR recipe. 8 jsdom smoke tests.
+- `userr add`: scaffolds App Router pages (board/detail/roadmap/changelog +
+  RSS route; Neon also gets the API catch-all) with ownership markers and the
+  non-overwrite manifest policy. Deviation from plan: changelog/lane GET routes
+  were added to the Neon handler because the REST client needs them.
+- Full repo green: 4 core + 40 convex (+1 skip) + 4 neon + 8 react + 6 CLI,
+  typecheck clean.
 
 ## Completed (Phase 2 branch, in review)
 

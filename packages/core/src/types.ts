@@ -86,6 +86,43 @@ export interface ItemInput {
   context?: Record<string, string | number | boolean | null>;
 }
 
+export interface ChangelogEntry {
+  id: Id;
+  boardId: Id;
+  title: string;
+  slug: string;
+  body: string;
+  version?: string;
+  linkedItemIds: readonly Id[];
+  publishedAt?: number;
+  createdAt: number;
+}
+
+export interface ChangelogInput {
+  boardId: Id;
+  title: string;
+  body: string;
+  version?: string;
+  linkedItemIds: readonly Id[];
+  publishedAt?: number;
+}
+
+export interface RoadmapLane {
+  id: Id;
+  boardId: Id;
+  name: string;
+  states: readonly ItemState[];
+  order: number;
+}
+
+export interface LaneInput {
+  id?: Id;
+  boardId: Id;
+  name: string;
+  states: readonly ItemState[];
+  order: number;
+}
+
 export interface FeedbackRepository {
   createBoard(input: BoardInput): Promise<Board>;
   createItem(input: ItemInput): Promise<FeedbackItem>;
@@ -98,6 +135,10 @@ export interface FeedbackRepository {
   merge(input: MergePlan): Promise<void>;
   appendEvent(event: Omit<FeedbackEvent, "id">): Promise<void>;
   listEvents(input: { itemId: Id }): Promise<readonly FeedbackEvent[]>;
+  publishChangelogEntry(input: ChangelogInput): Promise<ChangelogEntry>;
+  listChangelog(input: { boardId: Id; cursor?: string; limit: number }): Promise<CursorPage<ChangelogEntry>>;
+  saveLane(input: LaneInput): Promise<RoadmapLane>;
+  listLanes(input: { boardId: Id }): Promise<readonly RoadmapLane[]>;
 }
 
 export interface EmbeddingProvider {

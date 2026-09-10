@@ -140,6 +140,38 @@ export const subscriptions = pgTable(
   (table) => [primaryKey({ columns: [table.itemId, table.actorId] })],
 );
 
+export const changelogEntries = pgTable(
+  "changelog_entries",
+  {
+    id: text("id").primaryKey(),
+    boardId: text("board_id")
+      .notNull()
+      .references(() => boards.id),
+    title: text("title").notNull(),
+    slug: text("slug").notNull(),
+    body: text("body").notNull().default(""),
+    version: text("version"),
+    linkedItemIds: jsonb("linked_item_ids").$type<string[]>().notNull(),
+    publishedAt: bigint("published_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [index("changelog_board_created_idx").on(table.boardId, table.createdAt)],
+);
+
+export const roadmapLanes = pgTable(
+  "roadmap_lanes",
+  {
+    id: text("id").primaryKey(),
+    boardId: text("board_id")
+      .notNull()
+      .references(() => boards.id),
+    name: text("name").notNull(),
+    states: jsonb("states").$type<string[]>().notNull(),
+    order: integer("sort_order").notNull().default(0),
+  },
+  (table) => [index("lanes_board_order_idx").on(table.boardId, table.order)],
+);
+
 export type Schema = {
   boards: typeof boards;
   items: typeof items;
@@ -147,4 +179,6 @@ export type Schema = {
   comments: typeof comments;
   events: typeof events;
   subscriptions: typeof subscriptions;
+  changelogEntries: typeof changelogEntries;
+  roadmapLanes: typeof roadmapLanes;
 };

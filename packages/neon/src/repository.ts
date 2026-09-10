@@ -1,20 +1,24 @@
 import { randomUUID } from "node:crypto";
 
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
-import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 
 import {
   ITEM_STATES,
   normalizeText,
   type Board,
   type BoardInput,
+  type ChangelogEntry,
+  type ChangelogInput,
   type CursorPage,
   type FeedbackEvent,
   type FeedbackItem,
   type FeedbackRepository,
   type ItemInput,
   type ItemState,
+  type LaneInput,
   type MergePlan,
+  type RoadmapLane,
 } from "@userr/core";
 
 import * as schema from "./schema.js";
@@ -72,6 +76,32 @@ function toEvent(row: typeof schema.events.$inferSelect): FeedbackEvent {
     actorId: row.actorId ?? undefined,
     createdAt: row.createdAt,
     payload: row.payload,
+  };
+}
+
+function toChangelogEntry(
+  row: typeof schema.changelogEntries.$inferSelect,
+): ChangelogEntry {
+  return {
+    id: row.id,
+    boardId: row.boardId,
+    title: row.title,
+    slug: row.slug,
+    body: row.body,
+    version: row.version ?? undefined,
+    linkedItemIds: row.linkedItemIds,
+    publishedAt: row.publishedAt ?? undefined,
+    createdAt: row.createdAt,
+  };
+}
+
+function toLane(row: typeof schema.roadmapLanes.$inferSelect): RoadmapLane {
+  return {
+    id: row.id,
+    boardId: row.boardId,
+    name: row.name,
+    states: row.states as RoadmapLane["states"],
+    order: row.order,
   };
 }
 
@@ -493,6 +523,127 @@ export function createRepository(db: Database): FeedbackRepository {
         .where(eq(schema.events.itemId, input.itemId))
         .orderBy(asc(schema.events.createdAt), asc(schema.events.id));
       return rows.map(toEvent);
+    },
+
+    async publishChangelogEntry(
+      input: ChangelogInput,
+    ): Promise<ChangelogEntry> {
+      const title = input.title.trim();
+      if (title.length === 0) throw new Error("Title is required.");
+      const boards = await db
+        .select({ id: schema.boards.id })
+        .from(schema.boards)
+        .where(eq(schema.boards.id, input.boardId))
+        .limit(1);
+      if (!boards[0]) throw new Error("Board not found.");
+      const id = newId("entry");
+      const now = Date.now();
+      const [row] = await db
+        .insert(schema.changelogEntries)
+        .values({
+          id,
+          boardId: input.boardId,
+          title,
+          slug: `${slugify(title, id.slice(-8).toUpperCase())}`,
+          body: input.body,
+          version: input.version,
+          linkedItemIds: [...input.linkedItemIds],
+          publishedAt: input.publishedAt,
+          createdAt: now,
+        })
+        .returning();
+      if (!row) throw new Error("Changelog entry creation failed.");
+      return toChangelogEntry(row);
+    },
+
+    async listChangelog(input: {
+      boardId: string;
+      cursor?: string;
+      limit: number;
+    }): Promise<CursorPage<ChangelogEntry>> {
+      const conditions = [
+        eq(schema.changelogEntries.boardId, input.boardId),
+      ];
+      if (input.cursor) {
+        const decoded = JSON.parse(
+          Buffer.from(input.cursor, "base64url").toString("utf8"),
+        ) as { createdAt: number; id: string };
+        conditions.push(
+          or(
+            lt(schema.changelogEntries.createdAt, decoded.createdAt),
+            and(
+              eq(schema.changelogEntries.createdAt, decoded.createdAt),
+              lt(schema.changelogEntries.id, decoded.id),
+            ),
+          )!,
+        );
+      }
+      const rows = await db
+        .select()
+        .from(schema.changelogEntries)
+        .where(and(...conditions))
+        .orderBy(
+          desc(schema.changelogEntries.createdAt),
+          desc(schema.changelogEntries.id),
+        )
+        .limit(input.limit + 1);
+      const page = rows.slice(0, input.limit);
+      const last = page[page.length - 1];
+      return {
+        items: page.map(toChangelogEntry),
+        nextCursor:
+          rows.length > input.limit && last
+            ? Buffer.from(
+                JSON.stringify({ createdAt: last.createdAt, id: last.id }),
+              ).toString("base64url")
+            : null,
+      };
+    },
+
+    async saveLane(input: LaneInput): Promise<RoadmapLane> {
+      const name = input.name.trim();
+      if (name.length === 0) throw new Error("Lane name is required.");
+      if (input.id) {
+        const existing = await db
+          .select()
+          .from(schema.roadmapLanes)
+          .where(eq(schema.roadmapLanes.id, input.id))
+          .limit(1)
+          .then((rows) => rows[0]);
+        if (!existing || existing.boardId !== input.boardId) {
+          throw new Error("Roadmap lane not found.");
+        }
+        const [row] = await db
+          .update(schema.roadmapLanes)
+          .set({ name, states: [...input.states], order: input.order })
+          .where(eq(schema.roadmapLanes.id, input.id))
+          .returning();
+        if (!row) throw new Error("Roadmap lane update failed.");
+        return toLane(row);
+      }
+      const [row] = await db
+        .insert(schema.roadmapLanes)
+        .values({
+          id: newId("lane"),
+          boardId: input.boardId,
+          name,
+          states: [...input.states],
+          order: input.order,
+        })
+        .returning();
+      if (!row) throw new Error("Roadmap lane creation failed.");
+      return toLane(row);
+    },
+
+    async listLanes(input: {
+      boardId: string;
+    }): Promise<readonly RoadmapLane[]> {
+      const rows = await db
+        .select()
+        .from(schema.roadmapLanes)
+        .where(eq(schema.roadmapLanes.boardId, input.boardId))
+        .orderBy(asc(schema.roadmapLanes.order), asc(schema.roadmapLanes.id));
+      return rows.map(toLane);
     },
   };
 }
