@@ -216,7 +216,8 @@ export async function runConformanceSuite(
   );
   assert.equal((await repo.findItem(target.id))?.state, "planned");
 
-  // 11. Changelog entries publish with linked items and paginate.
+  // 11. Changelog entries publish with linked items and paginate — but
+  // dangling and cross-board links are rejected on every adapter.
   const entry = await repo.publishChangelogEntry({
     boardId: board.id,
     title: "Dark theme ships",
@@ -229,8 +230,39 @@ export async function runConformanceSuite(
   assert.deepEqual([...entry.linkedItemIds], [target.id]);
   const changelog = await repo.listChangelog({ boardId: board.id, limit: 10 });
   assert.ok(changelog.items.some((e) => e.id === entry.id));
+  await assert.rejects(
+    repo.publishChangelogEntry({
+      boardId: board.id,
+      title: "Bad links",
+      body: "Dangling.",
+      linkedItemIds: ["item_missing"],
+    }),
+  );
+  const otherBoard = await repo.createBoard({
+    slug: "other",
+    name: "Other",
+    visibility: "public",
+    allowedKinds: ["idea"],
+    statusOrder: ["inbox"],
+  });
+  const foreign = await repo.createItem({
+    boardId: otherBoard.id,
+    title: "Foreign",
+    body: "Elsewhere.",
+    kind: "idea",
+    authorId: "alice",
+  });
+  await assert.rejects(
+    repo.publishChangelogEntry({
+      boardId: board.id,
+      title: "Bad links",
+      body: "Cross-board.",
+      linkedItemIds: [foreign.id],
+    }),
+  );
 
-  // 12. Roadmap lanes save (create + update by id) and list in order.
+  // 12. Roadmap lanes save (create + update by id) and list in order — and
+  // states outside the contract are rejected on every adapter.
   await repo.saveLane({
     boardId: board.id,
     name: "Now",
@@ -245,6 +277,14 @@ export async function runConformanceSuite(
   });
   const renamed = await repo.saveLane({ ...lane, name: "Up next" });
   assert.equal(renamed.name, "Up next");
+  await assert.rejects(
+    repo.saveLane({
+      boardId: board.id,
+      name: "Bogus",
+      states: ["bogus" as ItemState],
+      order: 2,
+    }),
+  );
   const lanes = await repo.listLanes({ boardId: board.id });
   assert.deepEqual(
     lanes.map((l) => l.name),

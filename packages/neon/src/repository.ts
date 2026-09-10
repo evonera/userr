@@ -542,6 +542,18 @@ export function createRepository(db: Database): FeedbackRepository {
         .where(eq(schema.boards.id, input.boardId))
         .limit(1);
       if (!boards[0]) throw new Error("Board not found.");
+      // Linked items must exist on this board: no dangling or cross-board refs.
+      for (const itemId of input.linkedItemIds) {
+        const rows = await db
+          .select({ boardId: schema.items.boardId })
+          .from(schema.items)
+          .where(eq(schema.items.id, itemId))
+          .limit(1);
+        const item = rows[0];
+        if (!item || item.boardId !== input.boardId) {
+          throw new Error("Linked items must exist on this board.");
+        }
+      }
       const id = newId("entry");
       const now = Date.now();
       const [row] = await db
@@ -609,6 +621,11 @@ export function createRepository(db: Database): FeedbackRepository {
     async saveLane(input: LaneInput): Promise<RoadmapLane> {
       const name = input.name.trim();
       if (name.length === 0) throw new Error("Lane name is required.");
+      for (const state of input.states) {
+        if (!ITEM_STATES.includes(state)) {
+          throw new Error(`Invalid lane state "${state}".`);
+        }
+      }
       if (input.id) {
         const existing = await db
           .select()

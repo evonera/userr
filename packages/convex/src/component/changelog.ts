@@ -21,6 +21,13 @@ export const publish = mutation({
     if (!board) throw new Error("Board not found.");
     const title = args.title.trim();
     if (title.length === 0) throw new Error("Title is required.");
+    // Linked items must exist on this board: no dangling or cross-board refs.
+    for (const itemId of args.linkedItemIds ?? []) {
+      const item = await ctx.db.get(itemId);
+      if (!item || item.boardId !== args.boardId) {
+        throw new Error("Linked items must exist on this board.");
+      }
+    }
     const now = Date.now();
     const slugBase =
       normalizeTitle(title).replace(/ /g, "-").slice(0, 72) || "update";

@@ -73,8 +73,61 @@ test("init supports the neon backend without convex files", async () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(existsSync(join(root, "userr.config.ts")), true);
     assert.equal(existsSync(join(root, "convex")), false);
+    assert.equal(existsSync(join(root, "app", "feedback", "page.tsx")), false);
+    // Pages belong to `add`; the doctor confirms the setup is incomplete.
     const doctor = runIn(root, ["doctor"]);
-    assert.equal(doctor.status, 0, doctor.stderr);
+    assert.notEqual(doctor.status, 0);
+    assert.match(doctor.stdout, /@userr\/neon installed/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("init then add completes without conflicts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), nextProject());
+    const initialized = runIn(root, ["init", "--backend", "neon"]);
+    assert.equal(initialized.status, 0, initialized.stderr);
+    const added = runIn(root, ["add", "--backend", "neon"]);
+    assert.equal(added.status, 0, added.stderr);
+    assert.match(added.stdout, /create\s+app\/feedback\/page\.tsx/);
+    assert.doesNotMatch(added.stdout, /conflict/);
+    assert.equal(
+      existsSync(join(root, "app", "api", "userr", "[...path]", "route.ts")),
+      true,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("neon doctor fails without the package or route", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), nextProject());
+    runIn(root, ["init", "--backend", "neon"]);
+    const doctor = runIn(root, ["doctor"]);
+    assert.notEqual(doctor.status, 0);
+    assert.match(doctor.stdout, /@userr\/neon installed/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("neon doctor passes once the package and route exist", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({
+        dependencies: { next: "^15.0.0", "@userr/neon": "0.1.0" },
+      }),
+    );
+    runIn(root, ["init", "--backend", "neon"]);
+    runIn(root, ["add", "--backend", "neon"]);
+    const doctor = runIn(root, ["doctor"]);
+    assert.equal(doctor.status, 0, doctor.stdout);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

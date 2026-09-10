@@ -201,7 +201,12 @@ function createMemoryRepository(): FeedbackRepository {
     async publishChangelogEntry(
       input: ChangelogInput,
     ): Promise<ChangelogEntry> {
-      const now = Date.now();
+      for (const itemId of input.linkedItemIds) {
+        const item = items.get(itemId);
+        if (!item || item.boardId !== input.boardId) {
+          throw new Error("Linked items must exist on this board.");
+        }
+      }      const now = Date.now();
       const id = nextId("entry");
       const entry: ChangelogEntry = {
         id,
@@ -234,6 +239,11 @@ function createMemoryRepository(): FeedbackRepository {
       };
     },
     async saveLane(input: LaneInput): Promise<RoadmapLane> {
+      for (const state of input.states) {
+        if (!ITEM_STATES.includes(state)) {
+          throw new Error(`Invalid lane state "${state}".`);
+        }
+      }
       if (input.id) {
         const lane = lanes.get(input.id);
         assert.ok(lane, "lane must exist to update");
