@@ -356,6 +356,13 @@ function createMemoryRepository(): FeedbackRepository {
           return webhook;
         });
     },
+    async getWebhook(input: { id: string }) {
+      const hook = webhooks.get(input.id);
+      if (!hook) return null;
+      const { secret: _, ...webhook } = hook;
+      void _;
+      return webhook;
+    },
     async updateWebhook(input: {
       id: string;
       url?: string;

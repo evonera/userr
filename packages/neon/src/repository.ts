@@ -4,14 +4,21 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 
 import {
+  buildEnvelope,
   EMBEDDING_DIMENSIONS,
+  generateWebhookSecret,
   ITEM_STATES,
+  nextRetryAt,
   normalizeText,
+  secretPreview,
+  signWebhook,
+  VOTE_MILESTONES,
   type Board,
   type BoardInput,
   type ChangelogEntry,
   type ChangelogInput,
   type CursorPage,
+  type Delivery,
   type FeedbackEvent,
   type FeedbackItem,
   type FeedbackRepository,
@@ -20,6 +27,9 @@ import {
   type LaneInput,
   type MergePlan,
   type RoadmapLane,
+  type Webhook,
+  type WebhookEventType,
+  type WebhookInput,
 } from "@userr/core";
 
 import * as schema from "./schema.js";
@@ -104,6 +114,66 @@ function toLane(row: typeof schema.roadmapLanes.$inferSelect): RoadmapLane {
     states: row.states as RoadmapLane["states"],
     order: row.order,
   };
+}
+
+function maskWebhook(row: typeof schema.webhooks.$inferSelect): Webhook {
+  return {
+    id: row.id,
+    boardId: row.boardId,
+    url: row.url,
+    secretPreview: secretPreview(row.secret),
+    events: row.events as Webhook["events"],
+    active: row.active,
+    failureCount: row.failureCount,
+    lastError: row.lastError ?? undefined,
+    lastTriggeredAt: row.lastTriggeredAt ?? undefined,
+  };
+}
+
+function toDelivery(row: typeof schema.deliveries.$inferSelect): Delivery {
+  return {
+    id: row.id,
+    webhookId: row.webhookId,
+    event: row.event as Delivery["event"],
+    payload: row.payload,
+    status: row.status as Delivery["status"],
+    attempts: row.attempts,
+    nextRetryAt: row.nextRetryAt ?? undefined,
+    lastError: row.lastError ?? undefined,
+    deliveredAt: row.deliveredAt ?? undefined,
+  };
+}
+
+/** Fan out to active webhooks subscribed to the event. Called inside the
+ *  originating transaction so rows and outbox entries commit atomically. */
+async function enqueueEvent(
+  tx: Database,
+  boardId: string,
+  type: WebhookEventType,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const now = Date.now();
+  const hooks = await tx
+    .select()
+    .from(schema.webhooks)
+    .where(eq(schema.webhooks.boardId, boardId));
+  for (const hook of hooks) {
+    if (!hook.active || !hook.events.includes(type)) continue;
+    await tx.insert(schema.deliveries).values({
+      id: newId("dlv"),
+      webhookId: hook.id,
+      event: type,
+      payload,
+      status: "pending",
+      attempts: 0,
+      nextRetryAt: now,
+      createdAt: now,
+    });
+    await tx
+      .update(schema.webhooks)
+      .set({ lastTriggeredAt: now })
+      .where(eq(schema.webhooks.id, hook.id));
+  }
 }
 
 async function requireItem(
@@ -243,6 +313,10 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: {},
           createdAt: now,
         });
+        await enqueueEvent(tx as Database, input.boardId, "post.created", {
+          itemId: id,
+          title,
+        });
         return toItem(row);
       });
     },
@@ -337,7 +411,14 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: {},
           createdAt: Date.now(),
         });
-        return { added: true, voteCount: updated?.voteCount ?? item.voteCount + 1 };
+        const count = updated?.voteCount ?? item.voteCount + 1;
+        if (VOTE_MILESTONES.includes(count)) {
+          await enqueueEvent(tx as Database, item.boardId, "vote.milestone", {
+            itemId: input.itemId,
+            voteCount: count,
+          });
+        }
+        return { added: true, voteCount: count };
       });
     },
 
@@ -411,6 +492,11 @@ export function createRepository(db: Database): FeedbackRepository {
           actorId: input.actorId,
           payload: { from: item.state, to: input.state },
           createdAt: now,
+        });
+        await enqueueEvent(t, item.boardId, "post.status_changed", {
+          itemId: input.itemId,
+          from: item.state,
+          to: input.state,
         });
       });
     },
@@ -506,6 +592,10 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: { targetId: plan.targetId, reason: plan.reason },
           createdAt: now,
         });
+        await enqueueEvent(t, source.boardId, "post.merged", {
+          sourceId: plan.sourceId,
+          targetId: plan.targetId,
+        });
       });
     },
 
@@ -536,42 +626,49 @@ export function createRepository(db: Database): FeedbackRepository {
     ): Promise<ChangelogEntry> {
       const title = input.title.trim();
       if (title.length === 0) throw new Error("Title is required.");
-      const boards = await db
-        .select({ id: schema.boards.id })
-        .from(schema.boards)
-        .where(eq(schema.boards.id, input.boardId))
-        .limit(1);
-      if (!boards[0]) throw new Error("Board not found.");
-      // Linked items must exist on this board: no dangling or cross-board refs.
-      for (const itemId of input.linkedItemIds) {
-        const rows = await db
-          .select({ boardId: schema.items.boardId })
-          .from(schema.items)
-          .where(eq(schema.items.id, itemId))
+      return db.transaction(async (tx) => {
+        const t = tx as Database;
+        const boards = await t
+          .select({ id: schema.boards.id })
+          .from(schema.boards)
+          .where(eq(schema.boards.id, input.boardId))
           .limit(1);
-        const item = rows[0];
-        if (!item || item.boardId !== input.boardId) {
-          throw new Error("Linked items must exist on this board.");
+        if (!boards[0]) throw new Error("Board not found.");
+        // Linked items must exist on this board: no dangling or cross-board refs.
+        for (const itemId of input.linkedItemIds) {
+          const rows = await t
+            .select({ boardId: schema.items.boardId })
+            .from(schema.items)
+            .where(eq(schema.items.id, itemId))
+            .limit(1);
+          const item = rows[0];
+          if (!item || item.boardId !== input.boardId) {
+            throw new Error("Linked items must exist on this board.");
+          }
         }
-      }
-      const id = newId("entry");
-      const now = Date.now();
-      const [row] = await db
-        .insert(schema.changelogEntries)
-        .values({
-          id,
-          boardId: input.boardId,
+        const id = newId("entry");
+        const now = Date.now();
+        const [row] = await t
+          .insert(schema.changelogEntries)
+          .values({
+            id,
+            boardId: input.boardId,
+            title,
+            slug: `${slugify(title, id.slice(-8).toUpperCase())}`,
+            body: input.body,
+            version: input.version,
+            linkedItemIds: [...input.linkedItemIds],
+            publishedAt: input.publishedAt,
+            createdAt: now,
+          })
+          .returning();
+        if (!row) throw new Error("Changelog entry creation failed.");
+        await enqueueEvent(t, input.boardId, "changelog.published", {
+          entryId: id,
           title,
-          slug: `${slugify(title, id.slice(-8).toUpperCase())}`,
-          body: input.body,
-          version: input.version,
-          linkedItemIds: [...input.linkedItemIds],
-          publishedAt: input.publishedAt,
-          createdAt: now,
-        })
-        .returning();
-      if (!row) throw new Error("Changelog entry creation failed.");
-      return toChangelogEntry(row);
+        });
+        return toChangelogEntry(row);
+      });
     },
 
     async listChangelog(input: {
@@ -667,6 +764,201 @@ export function createRepository(db: Database): FeedbackRepository {
         .where(eq(schema.roadmapLanes.boardId, input.boardId))
         .orderBy(asc(schema.roadmapLanes.order), asc(schema.roadmapLanes.id));
       return rows.map(toLane);
+    },
+
+    async createWebhook(input: WebhookInput) {
+      if (!/^https?:\/\//.test(input.url)) {
+        throw new Error("Webhook URL must be http(s).");
+      }
+      const boards = await db
+        .select({ id: schema.boards.id })
+        .from(schema.boards)
+        .where(eq(schema.boards.id, input.boardId))
+        .limit(1);
+      if (!boards[0]) throw new Error("Board not found.");
+      const secret = generateWebhookSecret();
+      const [row] = await db
+        .insert(schema.webhooks)
+        .values({
+          id: newId("hook"),
+          boardId: input.boardId,
+          url: input.url,
+          secret,
+          events: [...input.events],
+          active: true,
+          failureCount: 0,
+          createdAt: Date.now(),
+        })
+        .returning();
+      if (!row) throw new Error("Webhook creation failed.");
+      return { webhook: maskWebhook(row), secret };
+    },
+
+    async listWebhooks(input: { boardId: string }) {
+      const rows = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.boardId, input.boardId));
+      return rows.map(maskWebhook);
+    },
+
+    async getWebhook(input: { id: string }): Promise<Webhook | null> {
+      const rows = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .limit(1);
+      return rows[0] ? maskWebhook(rows[0]) : null;
+    },
+
+    async updateWebhook(input: {
+      id: string;
+      url?: string;
+      events?: readonly WebhookEventType[];
+      active?: boolean;
+    }): Promise<void> {
+      const existing = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .limit(1)
+        .then((rows) => rows[0]);
+      if (!existing) throw new Error("Webhook not found.");
+      if (input.url !== undefined && !/^https?:\/\//.test(input.url)) {
+        throw new Error("Webhook URL must be http(s).");
+      }
+      await db
+        .update(schema.webhooks)
+        .set({
+          ...(input.url !== undefined ? { url: input.url } : {}),
+          ...(input.events !== undefined ? { events: [...input.events] } : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
+        })
+        .where(eq(schema.webhooks.id, input.id));
+    },
+
+    async rotateWebhookSecret(input: { id: string }) {
+      const existing = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .limit(1)
+        .then((rows) => rows[0]);
+      if (!existing) throw new Error("Webhook not found.");
+      const secret = generateWebhookSecret();
+      await db
+        .update(schema.webhooks)
+        .set({ secret, failureCount: 0 })
+        .where(eq(schema.webhooks.id, input.id));
+      return { secret };
+    },
+
+    async deleteWebhook(input: { id: string }): Promise<void> {
+      const deleted = await db
+        .delete(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .returning({ id: schema.webhooks.id });
+      if (deleted.length === 0) throw new Error("Webhook not found.");
+      await db
+        .delete(schema.deliveries)
+        .where(eq(schema.deliveries.webhookId, input.id));
+    },
+
+    async listDeliveries(input: {
+      webhookId?: string;
+      status?: Delivery["status"];
+      limit?: number;
+    }) {
+      const conditions = [];
+      if (input.webhookId) {
+        conditions.push(eq(schema.deliveries.webhookId, input.webhookId));
+      }
+      if (input.status) {
+        conditions.push(eq(schema.deliveries.status, input.status));
+      }
+      const rows = await db
+        .select()
+        .from(schema.deliveries)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.deliveries.createdAt))
+        .limit(Math.min(Math.max(input.limit ?? 50, 1), 200));
+      return rows.map(toDelivery);
+    },
+
+    async recordDeliveryOutcome(input: {
+      deliveryId: string;
+      ok: boolean;
+      error?: string;
+      at?: number;
+    }) {
+      return db.transaction(async (tx) => {
+        const t = tx as Database;
+        const rows = await t
+          .select()
+          .from(schema.deliveries)
+          .where(eq(schema.deliveries.id, input.deliveryId))
+          .limit(1);
+        const delivery = rows[0];
+        if (!delivery) throw new Error("Delivery not found.");
+        const now = input.at ?? Date.now();
+        const attempts = delivery.attempts + 1;
+        if (input.ok) {
+          const [row] = await t
+            .update(schema.deliveries)
+            .set({
+              status: "delivered",
+              attempts,
+              deliveredAt: now,
+              lastError: null,
+            })
+            .where(eq(schema.deliveries.id, input.deliveryId))
+            .returning();
+          await t
+            .update(schema.webhooks)
+            .set({ failureCount: 0, lastTriggeredAt: now })
+            .where(eq(schema.webhooks.id, delivery.webhookId));
+          return toDelivery(row ?? { ...delivery, status: "delivered", attempts });
+        }
+        const retryAt = nextRetryAt(attempts, now);
+        if (retryAt === null) {
+          const [row] = await t
+            .update(schema.deliveries)
+            .set({
+              status: "failed",
+              attempts,
+              nextRetryAt: null,
+              lastError: input.error ?? "delivery failed",
+            })
+            .where(eq(schema.deliveries.id, input.deliveryId))
+            .returning();
+          await t
+            .update(schema.webhooks)
+            .set({
+              failureCount: sql`${schema.webhooks.failureCount} + 1`,
+              active: false,
+              lastError: input.error ?? "delivery failed",
+            })
+            .where(eq(schema.webhooks.id, delivery.webhookId));
+          return toDelivery(row ?? { ...delivery, status: "failed", attempts });
+        }
+        const [row] = await t
+          .update(schema.deliveries)
+          .set({
+            attempts,
+            nextRetryAt: retryAt,
+            lastError: input.error ?? "delivery failed",
+          })
+          .where(eq(schema.deliveries.id, input.deliveryId))
+          .returning();
+        await t
+          .update(schema.webhooks)
+          .set({
+            failureCount: sql`${schema.webhooks.failureCount} + 1`,
+            lastError: input.error ?? "delivery failed",
+          })
+          .where(eq(schema.webhooks.id, delivery.webhookId));
+        return toDelivery(row ?? { ...delivery, attempts });
+      });
     },
   };
 }
@@ -863,6 +1155,10 @@ export async function createComment(
       payload: { commentId: row.id },
       createdAt: now,
     });
+    await enqueueEvent(t, item.boardId, "comment.created", {
+      itemId: input.itemId,
+      commentId: row.id,
+    });
     return row.id;
   });
 }
@@ -1019,4 +1315,116 @@ export async function unsubscribe(
     )
     .returning({ itemId: schema.subscriptions.itemId });
   return deleted.length > 0;
+}
+
+export interface ProcessOutboxOptions {
+  deliver?: (input: {
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  fetchImpl?: typeof fetch;
+  limit?: number;
+  now?: number;
+}
+
+/**
+ * Host-run outbox worker. The host schedules this (cron, interval, queue
+ * worker) with its own runtime: reads due deliveries, POSTs signed envelopes
+ * via the injected deliver function (default uses global fetch), and records
+ * outcomes with the shared retry schedule. Keeps secrets and scheduling in
+ * host infrastructure — the adapter only defines the protocol.
+ */
+export async function processOutbox(
+  db: Database,
+  options: ProcessOutboxOptions = {},
+): Promise<{ attempted: number; delivered: number }> {
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+  const now = options.now ?? Date.now();
+  const due = await db
+    .select()
+    .from(schema.deliveries)
+    .where(
+      and(
+        eq(schema.deliveries.status, "pending"),
+        sql`${schema.deliveries.nextRetryAt} <= ${now}`,
+      ),
+    )
+    .limit(limit);
+  const deliver =
+    options.deliver ??
+    (async ({ url, headers, body }) => {
+      const impl = options.fetchImpl ?? fetch;
+      try {
+        const res = await impl(url, {
+          method: "POST",
+          headers,
+          body,
+        });
+        if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "delivery failed",
+        };
+      }
+    });
+
+  let delivered = 0;
+  const repo = createRepository(db);
+  for (const delivery of due) {
+    const hooks = await db
+      .select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.id, delivery.webhookId))
+      .limit(1);
+    const hook = hooks[0];
+    if (!hook || !hook.active) {
+      await repo.recordDeliveryOutcome({
+        deliveryId: delivery.id,
+        ok: false,
+        error: "webhook missing or inactive",
+        at: now,
+      });
+      continue;
+    }
+    const boards = await db
+      .select()
+      .from(schema.boards)
+      .where(eq(schema.boards.id, hook.boardId))
+      .limit(1);
+    const board = boards[0];
+    const envelope = buildEnvelope({
+      deliveryId: delivery.id,
+      type: delivery.event as WebhookEventType,
+      occurredAt: delivery.createdAt,
+      board: board
+        ? { id: board.id, slug: board.slug, name: board.name }
+        : { id: hook.boardId, slug: "", name: "" },
+      data:
+        typeof delivery.payload === "object" && delivery.payload !== null
+          ? (delivery.payload as Record<string, unknown>)
+          : {},
+    });
+    const body = JSON.stringify(envelope);
+    const result = await deliver({
+      url: hook.url,
+      headers: {
+        "content-type": "application/json",
+        "X-Feedback-Signature": await signWebhook(hook.secret, body),
+        "X-Feedback-Event": delivery.event,
+        "X-Feedback-Delivery": delivery.id,
+      },
+      body,
+    });
+    await repo.recordDeliveryOutcome({
+      deliveryId: delivery.id,
+      ok: result.ok,
+      error: result.error,
+      at: now,
+    });
+    if (result.ok) delivered += 1;
+  }
+  return { attempted: due.length, delivered };
 }

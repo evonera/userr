@@ -27,6 +27,19 @@ export default defineSchema({
   comments: defineTable({ itemId: v.id("items"), actorId: v.string(), body: v.string(), parentId: v.optional(v.id("comments")), createdAt: v.number(), updatedAt: v.number(), deletedAt: v.optional(v.number()) }).index("by_item", ["itemId"]),
   events: defineTable({ itemId: v.id("items"), type: v.string(), actorId: v.optional(v.string()), payload: v.any(), createdAt: v.number() }).index("by_item_created", ["itemId", "createdAt"]),
   subscriptions: defineTable({ itemId: v.id("items"), actorId: v.string(), notifyComments: v.optional(v.boolean()), notifyStatusChanges: v.optional(v.boolean()), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
+  webhooks: defineTable({
+    boardId: v.id("boards"), url: v.string(), secret: v.string(),
+    events: v.array(v.string()), active: v.boolean(),
+    failureCount: v.number(), lastError: v.optional(v.string()),
+    lastTriggeredAt: v.optional(v.number()), createdAt: v.number(),
+  }).index("by_board", ["boardId"]),
+  deliveries: defineTable({
+    webhookId: v.id("webhooks"), event: v.string(), payload: v.any(),
+    status: v.union(v.literal("pending"), v.literal("delivered"), v.literal("failed")),
+    attempts: v.number(), nextRetryAt: v.optional(v.number()),
+    lastError: v.optional(v.string()), deliveredAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_webhook", ["webhookId"]).index("by_status_retry", ["status", "nextRetryAt"]),
   changelogEntries: defineTable({
     boardId: v.id("boards"), title: v.string(), slug: v.string(), body: v.string(),
     version: v.optional(v.string()), linkedItemIds: v.array(v.id("items")),

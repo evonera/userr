@@ -3,6 +3,7 @@ import { paginator } from "convex-helpers/server/pagination";
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server.js";
+import { enqueueEvent } from "./webhooks.js";
 import type { MutationCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {
@@ -108,6 +109,10 @@ export const create = mutation({
       actorId: args.actorId,
       payload: { commentId: id },
       createdAt: now,
+    });
+    await enqueueEvent(ctx, item.boardId, "comment.created", {
+      itemId: args.itemId,
+      commentId: id,
     });
     return id;
   },

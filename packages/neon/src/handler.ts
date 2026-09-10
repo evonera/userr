@@ -1,10 +1,12 @@
 import {
   assertTransition,
   ITEM_STATES,
+  type Delivery,
   type FeedbackRepository,
   type ItemState,
   type Role,
   type StatusTransition,
+  type WebhookEventType,
 } from "@userr/core";
 
 import {
@@ -126,6 +128,12 @@ function str(value: unknown, name: string): string {
  *   POST   /changelog               publish entry (moderator)
  *   GET    /lanes?boardId           roadmap lanes in order
  *   POST   /lanes                   save lane, id set = update (moderator)
+ *   GET    /webhooks?boardId        list webhooks, secrets masked (moderator)
+ *   POST   /webhooks                create webhook, secret once (moderator)
+ *   PATCH  /webhooks/:id            update url/events/active (moderator)
+ *   DELETE /webhooks/:id            delete webhook + deliveries (moderator)
+ *   POST   /webhooks/:id/rotate     rotate secret (moderator)
+ *   GET    /webhooks/:id/deliveries list deliveries (moderator)
  */
 export function createRequestHandler(
   options: HandlerOptions,
@@ -196,9 +204,15 @@ export function createRequestHandler(
     const query = url.searchParams;
     // Route on trailing segments so any mount prefix works.
     const anchor = segments.findIndex((s) =>
-      ["boards", "items", "comments", "similar", "changelog", "lanes"].includes(
-        s,
-      ),
+      [
+        "boards",
+        "items",
+        "comments",
+        "similar",
+        "changelog",
+        "lanes",
+        "webhooks",
+      ].includes(s),
     );
     const parts = anchor === -1 ? [] : segments.slice(anchor);
 
@@ -286,6 +300,70 @@ export function createRequestHandler(
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
         return json(await repo.listLanes({ boardId }));
+      }
+      // GET /webhooks?boardId — moderator-gated (URLs + failure state).
+      if (req.method === "GET" && parts[0] === "webhooks" && parts.length === 1) {
+        const boardId = query.get("boardId");
+        if (!boardId) return failure("boardId is required.", 400);
+        await moderator(req, boardId);
+        return json(await repo.listWebhooks({ boardId }));
+      }
+      // POST /webhooks — moderator-gated; secret returned once.
+      if (req.method === "POST" && parts[0] === "webhooks" && parts.length === 1) {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await moderator(req, boardId);
+        const created = await repo.createWebhook({
+          boardId,
+          url: str(body.url, "url"),
+          events: Array.isArray(body.events)
+            ? (body.events.filter((e): e is WebhookEventType => typeof e === "string") as WebhookEventType[])
+            : [],
+        });
+        return json(created, 201);
+      }
+      // Webhook-scoped routes: /webhooks/:id/... (moderator of the board).
+      if (parts[0] === "webhooks" && parts[1]) {
+        const hook = await repo.getWebhook({ id: parts[1] });
+        if (!hook) return failure("Webhook not found.", 404);
+        const moderatorId = await moderator(req, hook.boardId);
+        void moderatorId;
+        if (parts[2] === "rotate" && req.method === "POST") {
+          return json(await repo.rotateWebhookSecret({ id: hook.id }));
+        }
+        if (parts[2] === "deliveries" && req.method === "GET") {
+          const status = query.get("status") as
+            | Delivery["status"]
+            | null;
+          return json(
+            await repo.listDeliveries({
+              webhookId: hook.id,
+              ...(status ? { status } : {}),
+              limit: Math.min(Number(query.get("limit") ?? 50), 200),
+            }),
+          );
+        }
+        if (parts.length === 2 && req.method === "PATCH") {
+          const body = await readBody(req);
+          await repo.updateWebhook({
+            id: hook.id,
+            ...(typeof body.url === "string" ? { url: body.url } : {}),
+            ...(Array.isArray(body.events)
+              ? {
+                  events: body.events.filter(
+                    (e): e is WebhookEventType => typeof e === "string",
+                  ),
+                }
+              : {}),
+            ...(typeof body.active === "boolean" ? { active: body.active } : {}),
+          });
+          return json({ ok: true });
+        }
+        if (parts.length === 2 && req.method === "DELETE") {
+          await repo.deleteWebhook({ id: hook.id });
+          return json({ ok: true });
+        }
+        return failure("Unknown route.", 404);
       }
       // POST /changelog — moderator-gated; Phase 4's publisher calls this.
       if (req.method === "POST" && parts[0] === "changelog") {

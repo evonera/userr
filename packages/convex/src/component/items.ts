@@ -2,6 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { paginator } from "convex-helpers/server/pagination";
 import { v } from "convex/values";
 
+import { VOTE_MILESTONES } from "@userr/core";
 import { mutation, query } from "./_generated/server.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
@@ -16,6 +17,7 @@ import {
   toPublicItem,
 } from "./model.js";
 import schema from "./schema.js";
+import { enqueueEvent } from "./webhooks.js";
 
 function checkTitle(title: string): string {
   const trimmed = title.trim();
@@ -182,6 +184,10 @@ export const create = mutation({
       payload: {},
       createdAt: now,
     });
+    await enqueueEvent(ctx, args.boardId, "post.created", {
+      itemId: id,
+      title,
+    });
     return id;
   },
 });
@@ -211,6 +217,11 @@ export const setState = mutation({
       actorId: args.actorId,
       payload: { from: item.state, to: args.state },
       createdAt: now,
+    });
+    await enqueueEvent(ctx, item.boardId, "post.status_changed", {
+      itemId: args.itemId,
+      from: item.state,
+      to: args.state,
     });
     return null;
   },
@@ -246,6 +257,12 @@ export const vote = mutation({
       payload: {},
       createdAt: now,
     });
+    if (VOTE_MILESTONES.includes(item.voteCount + 1)) {
+      await enqueueEvent(ctx, item.boardId, "vote.milestone", {
+        itemId: args.itemId,
+        voteCount: item.voteCount + 1,
+      });
+    }
     return { added: true, voteCount: item.voteCount + 1 };
   },
 });
@@ -367,6 +384,10 @@ export const merge = mutation({
       actorId: args.actorId,
       payload: { targetId: args.targetId, reason: args.reason },
       createdAt: now,
+    });
+    await enqueueEvent(ctx, source.boardId, "post.merged", {
+      sourceId: args.sourceId,
+      targetId: args.targetId,
     });
     return null;
   },

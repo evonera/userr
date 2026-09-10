@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import { normalizeTitle, publicChangelogEntry } from "./model.js";
 import schema from "./schema.js";
+import { enqueueEvent } from "./webhooks.js";
 
 export const publish = mutation({
   args: {
@@ -43,6 +44,10 @@ export const publish = mutation({
     });
     await ctx.db.patch(id, {
       slug: `${slugBase}-${id.slice(-8).toLowerCase()}`,
+    });
+    await enqueueEvent(ctx, args.boardId, "changelog.published", {
+      entryId: id,
+      title,
     });
     return id;
   },

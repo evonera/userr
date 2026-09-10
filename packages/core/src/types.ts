@@ -141,6 +141,7 @@ export interface FeedbackRepository {
   listLanes(input: { boardId: Id }): Promise<readonly RoadmapLane[]>;
   createWebhook(input: WebhookInput): Promise<{ webhook: Webhook; secret: string }>;
   listWebhooks(input: { boardId: Id }): Promise<readonly Webhook[]>;
+  getWebhook(input: { id: Id }): Promise<Webhook | null>;
   updateWebhook(input: { id: Id; url?: string; events?: readonly WebhookEventType[]; active?: boolean }): Promise<void>;
   rotateWebhookSecret(input: { id: Id }): Promise<{ secret: string }>;
   deleteWebhook(input: { id: Id }): Promise<void>;
