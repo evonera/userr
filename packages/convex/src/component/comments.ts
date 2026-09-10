@@ -4,6 +4,7 @@ import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server.js";
 import { enqueueEvent } from "./webhooks.js";
+import { requireUnblocked } from "./moderation.js";
 import type { MutationCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {
@@ -77,6 +78,7 @@ export const create = mutation({
     if (!item || item.mergedInto) {
       throw new Error("Feedback item is unavailable.");
     }
+    await requireUnblocked(ctx, item.boardId, args.actorId);
     const body = checkBody(args.body);
     if (args.parentId) {
       const parent = await ctx.db.get(args.parentId);

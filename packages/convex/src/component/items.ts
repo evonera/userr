@@ -11,6 +11,7 @@ import {
   itemState,
   MAX_BODY_LENGTH,
   MAX_TITLE_LENGTH,
+  moderationState,
   normalizeTitle,
   pageOfItems,
   publicItem,
@@ -18,6 +19,7 @@ import {
 } from "./model.js";
 import schema from "./schema.js";
 import { enqueueEvent } from "./webhooks.js";
+import { requireUnblocked } from "./moderation.js";
 
 function checkTitle(title: string): string {
   const trimmed = title.trim();
@@ -49,6 +51,7 @@ export const list = query({
   args: {
     boardId: v.id("boards"),
     state: v.optional(itemState),
+    moderation: v.optional(moderationState),
     paginationOpts: paginationOptsValidator,
   },
   returns: pageOfItems,
@@ -63,9 +66,14 @@ export const list = query({
         );
     // Newest first. Merged items stay in the listing with `state: "merged"`
     // and a `mergedInto` pointer: triage needs them, and public views filter
-    // `state !== "merged"` (or query a specific state outright).
+    // `state !== "merged"` (or query a specific state outright). The
+    // moderation queue is `moderation: "pending"` (filtered in TypeScript:
+    // moderation has no dedicated index yet).
     const result = await scoped.order("desc").paginate(args.paginationOpts);
-    return { ...result, page: result.page.map(toPublicItem) };
+    const page = result.page.filter(
+      (item) => !args.moderation || item.moderation === args.moderation,
+    );
+    return { ...result, page: page.map(toPublicItem) };
   },
 });
 
@@ -152,6 +160,7 @@ export const create = mutation({
     }
     const title = checkTitle(args.title);
     const body = checkBody(args.body);
+    await requireUnblocked(ctx, args.boardId, args.actorId);
     const now = Date.now();
     const id = await ctx.db.insert("items", {
       boardId: args.boardId,
@@ -167,6 +176,7 @@ export const create = mutation({
       voteCount: 0,
       commentCount: 0,
       labels: [],
+      moderation: "approved",
       context: args.context,
       embeddingState: "pending",
       createdAt: now,
@@ -227,12 +237,66 @@ export const setState = mutation({
   },
 });
 
+/**
+ * Bulk transition for triage (close spam, plan a batch). All-or-nothing:
+ * every id is validated before any write, so a single bad id rejects the
+ * whole batch with nothing persisted. Capped at 50 per call.
+ */
+export const setStateMany = mutation({
+  args: {
+    itemIds: v.array(v.id("items")),
+    state: itemState,
+    actorId: v.string(),
+  },
+  returns: v.object({ updated: v.number() }),
+  handler: async (ctx, args) => {
+    if (args.state === "merged") {
+      throw new Error(
+        'State "merged" is set only by the merge operation, which establishes mergedInto.',
+      );
+    }
+    if (args.itemIds.length === 0) return { updated: 0 };
+    if (args.itemIds.length > 50) {
+      throw new Error("Bulk updates are limited to 50 items.");
+    }
+    const items: Doc<"items">[] = [];
+    for (const itemId of args.itemIds) {
+      const item = await requireItem(ctx, itemId);
+      if (item.mergedInto) {
+        throw new Error(`Item ${itemId} is merged and cannot change state.`);
+      }
+      items.push(item);
+    }
+    const now = Date.now();
+    let updated = 0;
+    for (const item of items) {
+      if (item.state === args.state) continue;
+      await ctx.db.patch(item._id, { state: args.state, updatedAt: now });
+      await ctx.db.insert("events", {
+        itemId: item._id,
+        type: "state_changed",
+        actorId: args.actorId,
+        payload: { from: item.state, to: args.state },
+        createdAt: now,
+      });
+      await enqueueEvent(ctx, item.boardId, "post.status_changed", {
+        itemId: item._id,
+        from: item.state,
+        to: args.state,
+      });
+      updated += 1;
+    }
+    return { updated };
+  },
+});
+
 export const vote = mutation({
   args: { itemId: v.id("items"), actorId: v.string() },
   returns: v.object({ added: v.boolean(), voteCount: v.number() }),
   handler: async (ctx, args) => {
     const item = await requireItem(ctx, args.itemId);
     if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+    await requireUnblocked(ctx, item.boardId, args.actorId);
     const prior = await ctx.db
       .query("votes")
       .withIndex("by_item_actor", (q) =>

@@ -13,6 +13,7 @@ import {
   type ItemInput,
   type ItemState,
   type MergePlan,
+  type ModerationState,
   type RoadmapLane,
   type Webhook,
   type WebhookInput,
@@ -96,10 +97,12 @@ function convexRepository(t: TestInstance): FeedbackRepository {
       cursor?: string;
       limit: number;
       state?: ItemState;
+      moderation?: ModerationState;
     }): Promise<CursorPage<FeedbackItem>> {
       const page = (await t.query(api.items.list, {
         boardId: input.boardId as never,
-        ...(input.state ? { state: input.state } : {}),
+        ...(input.state ? { state: input.state as never } : {}),
+        ...(input.moderation ? { moderation: input.moderation as never } : {}),
         paginationOpts: { numItems: input.limit, cursor: input.cursor ?? null },
       })) as {
         page: Record<string, unknown>[];
@@ -138,6 +141,68 @@ function convexRepository(t: TestInstance): FeedbackRepository {
         state: input.state as never,
         actorId: input.actorId,
       });
+    },
+    async setStateMany(input: {
+      itemIds: readonly string[];
+      state: ItemState;
+      actorId: string;
+    }) {
+      return (await t.mutation(api.items.setStateMany, {
+        itemIds: input.itemIds as never,
+        state: input.state as never,
+        actorId: input.actorId,
+      })) as { updated: number };
+    },
+    async reportItem(input: {
+      itemId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.report, {
+        itemId: input.itemId as never,
+        actorId: input.actorId,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+    },
+    async reviewItem(input: {
+      itemId: string;
+      decision: Exclude<ModerationState, "pending">;
+      actorId: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.review, {
+        itemId: input.itemId as never,
+        decision: input.decision as never,
+        actorId: input.actorId,
+      });
+    },
+    async blockActor(input: {
+      boardId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.block, {
+        boardId: input.boardId as never,
+        actorId: input.actorId,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+    },
+    async unblockActor(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.unblock, {
+        boardId: input.boardId as never,
+        actorId: input.actorId,
+      });
+    },
+    async isBlocked(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<boolean> {
+      return (await t.query(api.moderation.isBlocked, {
+        boardId: input.boardId as never,
+        actorId: input.actorId,
+      })) as boolean;
     },
     async merge(plan: MergePlan): Promise<void> {
       await t.mutation(api.items.merge, {

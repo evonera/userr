@@ -23,6 +23,7 @@ import type {
   ItemState,
   LaneInput,
   MergePlan,
+  ModerationState,
   RoadmapLane,
   Webhook,
   WebhookEventType,
@@ -41,7 +42,18 @@ function createMemoryRepository(): FeedbackRepository {
   const lanes = new Map<string, RoadmapLane>();
   const webhooks = new Map<string, Webhook & { secret: string }>();
   const deliveries = new Map<string, Delivery>();
+  const blocked = new Map<string, Set<string>>();
   const nextId = (prefix: string) => `${prefix}_${++seq}`;
+
+  function isBlocked(boardId: string, actorId: string): boolean {
+    return blocked.get(boardId)?.has(actorId) ?? false;
+  }
+
+  function requireUnblocked(boardId: string, actorId: string): void {
+    if (isBlocked(boardId, actorId)) {
+      throw new Error("Actor is blocked on this board.");
+    }
+  }
 
   function webhooksFor(boardId: string, type: Delivery["event"]) {
     return [...webhooks.values()].filter(
@@ -77,6 +89,7 @@ function createMemoryRepository(): FeedbackRepository {
     async createItem(input: ItemInput): Promise<FeedbackItem> {
       const now = Date.now();
       const id = nextId("item");
+      requireUnblocked(input.boardId, input.authorId);
       const item: FeedbackItem = {
         id,
         boardId: input.boardId,
@@ -91,6 +104,7 @@ function createMemoryRepository(): FeedbackRepository {
         updatedAt: now,
         voteCount: 0,
         commentCount: 0,
+        moderation: "approved",
         labels: [],
         context: input.context,
       };
@@ -120,10 +134,14 @@ function createMemoryRepository(): FeedbackRepository {
       cursor?: string;
       limit: number;
       state?: ItemState;
+      moderation?: ModerationState;
     }): Promise<CursorPage<FeedbackItem>> {
       const all = [...items.values()]
         .filter((item) => item.boardId === input.boardId)
         .filter((item) => !input.state || item.state === input.state)
+        .filter(
+          (item) => !input.moderation || item.moderation === input.moderation,
+        )
         .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
       const start = input.cursor ? Number(input.cursor) : 0;
       const page = all.slice(start, start + input.limit);
@@ -136,6 +154,7 @@ function createMemoryRepository(): FeedbackRepository {
     async castVote(input: { itemId: string; actorId: string }) {
       const item = items.get(input.itemId);
       assert.ok(item, "item must exist to vote");
+      requireUnblocked(item.boardId, input.actorId);
       const voters = votes.get(input.itemId) ?? new Set<string>();
       if (voters.has(input.actorId)) {
         return { added: false, voteCount: item.voteCount };
@@ -412,8 +431,7 @@ function createMemoryRepository(): FeedbackRepository {
       at?: number;
     }) {
       const delivery = deliveries.get(input.deliveryId);
-      assert.ok(delivery, "delivery must exist");
-      const hook = webhooks.get(delivery.webhookId);
+      assert.ok(delivery, "delivery must exist");      const hook = webhooks.get(delivery.webhookId);
       const now = input.at ?? Date.now();
       delivery.attempts += 1;
       if (input.ok) {
@@ -445,6 +463,108 @@ function createMemoryRepository(): FeedbackRepository {
         }
       }
       return { ...delivery };
+    },
+    async setStateMany(input: {
+      itemIds: readonly string[];
+      state: ItemState;
+      actorId: string;
+    }) {
+      if (!ITEM_STATES.includes(input.state)) {
+        throw new Error(`Invalid state "${input.state}".`);
+      }
+      if (input.state === "merged") {
+        throw new Error(
+          'State "merged" is set only by the merge operation, which establishes mergedInto.',
+        );
+      }
+      if (input.itemIds.length > 50) {
+        throw new Error("Bulk updates are limited to 50 items.");
+      }
+      const targets = input.itemIds.map((id) => {
+        const item = items.get(id);
+        if (!item || item.mergedInto) {
+          throw new Error(`Item ${id} is unavailable for bulk update.`);
+        }
+        return item;
+      });
+      const now = Date.now();
+      for (const item of targets) {
+        if (item.state === input.state) continue;
+        const from = item.state;
+        item.state = input.state;
+        item.updatedAt = now;
+        events.push({
+          id: nextId("evt"),
+          itemId: item.id,
+          type: "state_changed",
+          actorId: input.actorId,
+          createdAt: now,
+          payload: { from, to: input.state },
+        });
+      }
+      return { updated: targets.length };
+    },
+    async reportItem(input: {
+      itemId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      const item = items.get(input.itemId);
+      assert.ok(item, "item must exist to report");
+      item.moderation = "pending";
+      item.updatedAt = Date.now();
+      events.push({
+        id: nextId("evt"),
+        itemId: input.itemId,
+        type: "flagged",
+        actorId: input.actorId,
+        createdAt: Date.now(),
+        payload: input.reason ? { reason: input.reason } : {},
+      });
+    },
+    async reviewItem(input: {
+      itemId: string;
+      decision: Exclude<ModerationState, "pending">;
+      actorId: string;
+    }): Promise<void> {
+      const item = items.get(input.itemId);
+      assert.ok(item, "item must exist to review");
+      const from = item.moderation;
+      item.moderation = input.decision;
+      item.updatedAt = Date.now();
+      events.push({
+        id: nextId("evt"),
+        itemId: input.itemId,
+        type: "moderated",
+        actorId: input.actorId,
+        createdAt: Date.now(),
+        payload: { from, to: input.decision },
+      });
+    },
+    async blockActor(input: {
+      boardId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      let set = blocked.get(input.boardId);
+      if (!set) {
+        set = new Set();
+        blocked.set(input.boardId, set);
+      }
+      set.add(input.actorId);
+      void input.reason;
+    },
+    async unblockActor(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<void> {
+      blocked.get(input.boardId)?.delete(input.actorId);
+    },
+    async isBlocked(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<boolean> {
+      return isBlocked(input.boardId, input.actorId);
     },
   };
 }

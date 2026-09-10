@@ -22,6 +22,8 @@ export interface Board {
   statusOrder: readonly ItemState[];
 }
 
+export type ModerationState = "approved" | "pending" | "rejected" | "spam";
+
 export interface FeedbackItem {
   id: Id;
   boardId: Id;
@@ -37,6 +39,7 @@ export interface FeedbackItem {
   voteCount: number;
   commentCount: number;
   mergedInto?: Id;
+  moderation: ModerationState;
   labels: readonly string[];
   context?: Record<string, string | number | boolean | null>;
 }
@@ -44,7 +47,7 @@ export interface FeedbackItem {
 export interface FeedbackEvent {
   id: Id;
   itemId: Id;
-  type: "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented";
+  type: "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented" | "flagged" | "moderated";
   actorId?: string;
   createdAt: number;
   payload: Record<string, unknown>;
@@ -128,10 +131,16 @@ export interface FeedbackRepository {
   createItem(input: ItemInput): Promise<FeedbackItem>;
   findItem(id: Id): Promise<FeedbackItem | null>;
   findCanonicalItem(id: Id): Promise<FeedbackItem | null>;
-  listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState }): Promise<CursorPage<FeedbackItem>>;
+  listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState; moderation?: ModerationState }): Promise<CursorPage<FeedbackItem>>;
   castVote(input: { itemId: Id; actorId: string }): Promise<{ added: boolean; voteCount: number }>;
   uncastVote(input: { itemId: Id; actorId: string }): Promise<{ removed: boolean; voteCount: number }>;
   setState(input: { itemId: Id; state: ItemState; actorId: string }): Promise<void>;
+  setStateMany(input: { itemIds: readonly Id[]; state: ItemState; actorId: string }): Promise<{ updated: number }>;
+  reportItem(input: { itemId: Id; actorId: string; reason?: string }): Promise<void>;
+  reviewItem(input: { itemId: Id; decision: Exclude<ModerationState, "pending">; actorId: string }): Promise<void>;
+  blockActor(input: { boardId: Id; actorId: string; reason?: string }): Promise<void>;
+  unblockActor(input: { boardId: Id; actorId: string }): Promise<void>;
+  isBlocked(input: { boardId: Id; actorId: string }): Promise<boolean>;
   merge(input: MergePlan): Promise<void>;
   appendEvent(event: Omit<FeedbackEvent, "id">): Promise<void>;
   listEvents(input: { itemId: Id }): Promise<readonly FeedbackEvent[]>;

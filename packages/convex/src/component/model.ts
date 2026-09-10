@@ -21,6 +21,13 @@ export const itemState = v.union(
   v.literal("merged"),
 );
 
+export const moderationState = v.union(
+  v.literal("approved"),
+  v.literal("pending"),
+  v.literal("rejected"),
+  v.literal("spam"),
+);
+
 export const visibility = v.union(v.literal("public"), v.literal("private"));
 
 export const publicBoard = v.object({
@@ -51,6 +58,7 @@ export const publicItem = v.object({
   commentCount: v.number(),
   labels: v.array(v.string()),
   mergedInto: v.optional(v.id("items")),
+  moderation: moderationState,
   context: v.optional(v.any()),
   embeddingState: v.union(
     v.literal("pending"),
