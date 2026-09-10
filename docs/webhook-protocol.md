@@ -63,7 +63,7 @@ Admin subscribes per-hook: `events[]` + `boardIds[]` (empty = all boards).
 - Table: name · url · events · boards · status (healthy/failing/disabled) · last delivery.
 - Actions: create (URL + secret auto-gen + event/board pickers), test ping
   (`{type:"test", ...}` + preview pane, Fider pattern), rotate secret, disable, view deliveries.
-- `feedback.config.ts` hook alternative for code-first users:
+- `userr.config.ts` hook alternative for code-first users:
 ```ts
 export default { onStatusChange: async ({ post, newStatus, voters }) => {
   if (newStatus === "shipped")

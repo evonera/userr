@@ -22,7 +22,7 @@ function filesFor({ backend, framework }) {
   if (backend !== "convex") throw new Error(`Backend '${backend}' is planned but not installable yet. Available: convex.`);
   if (framework !== "next") throw new Error(`Framework '${framework}' is planned but not installable yet. Available: next.`);
   return {
-    "feedback.config.ts": `export default {\n  boardSlug: "feedback",\n  portalPath: "/feedback",\n  adminPath: "/admin/feedback",\n};\n`,
+    "userr.config.ts": `export default {\n  boardSlug: "feedback",\n  portalPath: "/feedback",\n  adminPath: "/admin/feedback",\n};\n`,
     "app/feedback/page.tsx": `import { FeedbackProvider } from "@userr/react";\n\nexport default function FeedbackPage() {\n  return <FeedbackProvider><main><h1>Feedback</h1>{/* Connect this page to your host Convex wrapper. */}</main></FeedbackProvider>;\n}\n`,
     ".userr/README.md": `# Userr\n\nGenerated files are safe to edit. Add the Convex component to \`convex/convex.config.ts\`, create authenticated host wrappers, then connect the generated portal to those wrappers.\n`,
   };
@@ -50,7 +50,7 @@ function doctor() {
   const checks = [
     ["Next.js project", detected.next],
     ["Convex installed", detected.convex],
-    ["feedback.config.ts", existsSync(join(root, "feedback.config.ts"))],
+    ["userr.config.ts", existsSync(join(root, "userr.config.ts"))],
     ["generated manifest", existsSync(join(root, ".userr", "manifest.json"))],
   ];
   for (const [name, passed] of checks) console.log(`${passed ? "✓" : "✗"} ${name}`);
