@@ -7,6 +7,20 @@ export class FeedbackRuleError extends Error {
   }
 }
 
+/** Every state the store may persist. Adapters and route layers must reject
+ *  anything outside this list — never let an unconstrained text column decide
+ *  what a state is. `merged` is set only by the merge operation, never by a
+ *  direct transition. */
+export const ITEM_STATES: readonly ItemState[] = [
+  "inbox",
+  "open",
+  "planned",
+  "in_progress",
+  "shipped",
+  "closed",
+  "merged",
+];
+
 export function assertTransition(input: {
   current: ItemState;
   next: ItemState;

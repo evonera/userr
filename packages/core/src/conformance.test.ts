@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 
 import { runConformanceSuite } from "./conformance.js";
+import { ITEM_STATES } from "./rules.js";
 import type {
   Board,
   BoardInput,
@@ -134,6 +135,9 @@ function createMemoryRepository(): FeedbackRepository {
     }): Promise<void> {
       const item = items.get(input.itemId);
       assert.ok(item, "item must exist to change state");
+      if (!ITEM_STATES.includes(input.state)) {
+        throw new Error(`Invalid state "${input.state}".`);
+      }
       if (item.mergedInto) throw new Error("Merged items cannot change state.");
       if (item.state === input.state) return;
       const from = item.state;

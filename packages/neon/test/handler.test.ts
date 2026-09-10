@@ -130,6 +130,18 @@ describe("request handler", () => {
       body: { state: "shipped" },
     });
     expect(illegal.status).toBe(400);
+    const garbage = await call(`/items/${itemId}/state`, {
+      method: "POST",
+      actor: "moderator",
+      body: { state: "archived_forever" },
+    });
+    expect(garbage.status).toBe(400);
+    const mergedState = await call(`/items/${itemId}/state`, {
+      method: "POST",
+      actor: "moderator",
+      body: { state: "merged" },
+    });
+    expect(mergedState.status).toBe(400);
 
     const second = await call("/items", {
       method: "POST",
