@@ -29,6 +29,28 @@ export interface FeedbackMessages {
   roadmapEmptyLane: string;
   changelogEmpty: string;
   publishedOn: (date: string) => string;
+  triageInbox: string;
+  triageEmpty: string;
+  selectAll: string;
+  bulkPlan: string;
+  bulkClose: string;
+  bulkSelected: (count: number) => string;
+  moderationQueue: string;
+  approve: string;
+  reject: string;
+  markSpam: string;
+  report: string;
+  mergeReview: string;
+  mergeInto: string;
+  mergeConfirm: string;
+  mergeVotesTransfer: (count: number) => string;
+  publishChangelog: string;
+  changelogTitleLabel: string;
+  changelogBodyLabel: string;
+  changelogVersionLabel: string;
+  linkShippedItems: string;
+  notifySubscribers: (count: number) => string;
+  shortcutsHelp: string;
 }
 
 export const defaultMessages: FeedbackMessages = {
@@ -56,4 +78,27 @@ export const defaultMessages: FeedbackMessages = {
   roadmapEmptyLane: "Nothing here yet.",
   changelogEmpty: "No updates published yet.",
   publishedOn: (date) => `Published ${date}`,
+  triageInbox: "Triage inbox",
+  triageEmpty: "Inbox zero. Everything is reviewed.",
+  selectAll: "Select all",
+  bulkPlan: "Plan",
+  bulkClose: "Close",
+  bulkSelected: (count) => `${count} selected`,
+  moderationQueue: "Moderation queue",
+  approve: "Approve",
+  reject: "Reject",
+  markSpam: "Spam",
+  report: "Report",
+  mergeReview: "Merge duplicates",
+  mergeInto: "Merge into",
+  mergeConfirm: "Merge",
+  mergeVotesTransfer: (count) => `Transfers ${count} vote${count === 1 ? "" : "s"}`,
+  publishChangelog: "Publish update",
+  changelogTitleLabel: "Title",
+  changelogBodyLabel: "Body (markdown)",
+  changelogVersionLabel: "Version (optional)",
+  linkShippedItems: "Link shipped items",
+  notifySubscribers: (count) =>
+    `Notify ${count} subscriber${count === 1 ? "" : "s"} via your email hook`,
+  shortcutsHelp: "p plan · c close · m merge · ? shortcuts",
 };

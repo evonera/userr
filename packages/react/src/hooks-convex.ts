@@ -38,7 +38,12 @@ function rows(value: unknown): Record<string, unknown>[] {
 
 export function useConvexItems(
   listQuery: AnyQuery,
-  args: { boardId: string; state?: string; initialNumItems?: number },
+  args: {
+    boardId: string;
+    state?: string;
+    moderation?: string;
+    initialNumItems?: number;
+  },
 ): {
   items: BoardItemView[];
   status: "LoadingMore" | "CanLoadMore" | "Exhausted" | string;
@@ -46,7 +51,11 @@ export function useConvexItems(
 } {
   const { results, status, loadMore } = usePaginatedQuery(
     listQuery as never,
-    { boardId: args.boardId, ...(args.state ? { state: args.state } : {}) } as never,
+    {
+      boardId: args.boardId,
+      ...(args.state ? { state: args.state } : {}),
+      ...(args.moderation ? { moderation: args.moderation } : {}),
+    } as never,
     { initialNumItems: args.initialNumItems ?? 20 },
   );
   return {

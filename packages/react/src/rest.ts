@@ -167,6 +167,66 @@ export function createRestClient(options: RestClientOptions) {
     async removeComment(commentId: string) {
       return send<{ ok: boolean }>(`/comments/${commentId}`, "DELETE");
     },
+    async reportItem(itemId: string, input: { reason?: string } = {}) {
+      return send<{ ok: boolean }>(`/items/${itemId}/report`, "POST", input);
+    },
+    async reviewItem(
+      itemId: string,
+      input: { decision: "approved" | "rejected" | "spam" },
+    ) {
+      return send<{ ok: boolean }>(`/items/${itemId}/review`, "POST", input);
+    },
+    async setStateMany(itemIds: string[], state: string, boardId: string) {
+      return send<{ updated: number }>("/items/bulk/state", "POST", {
+        boardId,
+        itemIds,
+        state,
+      });
+    },
+    async moderationQueue(
+      boardId: string,
+      input: { limit?: number; cursor?: string } = {},
+    ): Promise<CursorPage<BoardItemView>> {
+      const params = new URLSearchParams({ boardId });
+      if (input.limit) params.set("limit", String(input.limit));
+      if (input.cursor) params.set("cursor", input.cursor);
+      const raw = await get<Record<string, unknown>>(
+        `/moderation?${params.toString()}`,
+      );
+      const page = paging<Record<string, unknown>>(raw);
+      return {
+        items: page.items.map(toBoardItemView),
+        nextCursor: page.nextCursor,
+      };
+    },
+    async blockActor(boardId: string, actorId: string, reason?: string) {
+      return send<{ ok: boolean }>("/blocks", "POST", {
+        boardId,
+        actorId,
+        ...(reason ? { reason } : {}),
+      });
+    },
+    async unblockActor(boardId: string, actorId: string) {
+      const params = new URLSearchParams({ boardId, actorId });
+      return send<{ ok: boolean }>(`/blocks?${params.toString()}`, "DELETE");
+    },
+    async listWebhooks(boardId: string) {
+      const params = new URLSearchParams({ boardId });
+      return get<Record<string, unknown>[]>(
+        `/webhooks?${params.toString()}`,
+      );
+    },
+    async createWebhook(input: {
+      boardId: string;
+      url: string;
+      events: string[];
+    }) {
+      return send<{ webhook: Record<string, unknown>; secret: string }>(
+        "/webhooks",
+        "POST",
+        input,
+      );
+    },
     async subscribe(itemId: string, input: Record<string, unknown> = {}) {
       return send<{ ok: boolean }>(`/items/${itemId}/subscribe`, "POST", input);
     },
