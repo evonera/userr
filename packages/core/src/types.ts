@@ -139,6 +139,13 @@ export interface FeedbackRepository {
   listChangelog(input: { boardId: Id; cursor?: string; limit: number }): Promise<CursorPage<ChangelogEntry>>;
   saveLane(input: LaneInput): Promise<RoadmapLane>;
   listLanes(input: { boardId: Id }): Promise<readonly RoadmapLane[]>;
+  createWebhook(input: WebhookInput): Promise<{ webhook: Webhook; secret: string }>;
+  listWebhooks(input: { boardId: Id }): Promise<readonly Webhook[]>;
+  updateWebhook(input: { id: Id; url?: string; events?: readonly WebhookEventType[]; active?: boolean }): Promise<void>;
+  rotateWebhookSecret(input: { id: Id }): Promise<{ secret: string }>;
+  deleteWebhook(input: { id: Id }): Promise<void>;
+  listDeliveries(input: { webhookId?: Id; status?: DeliveryStatus; limit?: number }): Promise<readonly Delivery[]>;
+  recordDeliveryOutcome(input: { deliveryId: Id; ok: boolean; error?: string; at?: number }): Promise<Delivery>;
 }
 
 export interface EmbeddingProvider {
@@ -170,4 +177,54 @@ export interface MergePlan {
   actorId: string;
   mergedAt: number;
   reason?: string;
+}
+
+export type WebhookEventType =
+  | "post.created"
+  | "post.status_changed"
+  | "post.merged"
+  | "comment.created"
+  | "vote.milestone"
+  | "changelog.published";
+
+export interface Webhook {
+  id: Id;
+  boardId: Id;
+  url: string;
+  /** Last 4 chars only — the full secret is returned once at creation/rotation. */
+  secretPreview: string;
+  events: readonly WebhookEventType[];
+  active: boolean;
+  failureCount: number;
+  lastError?: string;
+  lastTriggeredAt?: number;
+}
+
+export interface WebhookInput {
+  boardId: Id;
+  url: string;
+  events: readonly WebhookEventType[];
+}
+
+export type DeliveryStatus = "pending" | "delivered" | "failed";
+
+export interface Delivery {
+  id: Id;
+  webhookId: Id;
+  event: WebhookEventType;
+  payload: Record<string, unknown>;
+  status: DeliveryStatus;
+  attempts: number;
+  nextRetryAt?: number;
+  lastError?: string;
+  deliveredAt?: number;
+}
+
+export interface WebhookEnvelope {
+  /** Delivery id — the idempotency key. */
+  id: Id;
+  type: WebhookEventType;
+  occurredAt: number;
+  board: { id: Id; slug: string; name: string };
+  data: Record<string, unknown>;
 }

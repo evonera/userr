@@ -3,12 +3,19 @@ import { strict as assert } from "node:assert";
 
 import { runConformanceSuite } from "./conformance.js";
 import { ITEM_STATES } from "./rules.js";
+import {
+  generateWebhookSecret,
+  nextRetryAt,
+  secretPreview,
+  VOTE_MILESTONES,
+} from "./webhooks.js";
 import type {
   Board,
   BoardInput,
   ChangelogEntry,
   ChangelogInput,
   CursorPage,
+  Delivery,
   FeedbackEvent,
   FeedbackItem,
   FeedbackRepository,
@@ -17,6 +24,9 @@ import type {
   LaneInput,
   MergePlan,
   RoadmapLane,
+  Webhook,
+  WebhookEventType,
+  WebhookInput,
 } from "./types.js";
 
 /** Minimal in-memory adapter. Exists only to prove the conformance suite itself
@@ -29,7 +39,34 @@ function createMemoryRepository(): FeedbackRepository {
   const events: FeedbackEvent[] = [];
   const changelog = new Map<string, ChangelogEntry>();
   const lanes = new Map<string, RoadmapLane>();
+  const webhooks = new Map<string, Webhook & { secret: string }>();
+  const deliveries = new Map<string, Delivery>();
   const nextId = (prefix: string) => `${prefix}_${++seq}`;
+
+  function webhooksFor(boardId: string, type: Delivery["event"]) {
+    return [...webhooks.values()].filter(
+      (hook) => hook.boardId === boardId && hook.active && hook.events.includes(type),
+    );
+  }
+
+  function enqueue(
+    boardId: string,
+    type: Delivery["event"],
+    payload: Record<string, unknown>,
+  ) {
+    for (const hook of webhooksFor(boardId, type)) {
+      const id = nextId("dlv");
+      deliveries.set(id, {
+        id,
+        webhookId: hook.id,
+        event: type,
+        payload,
+        status: "pending",
+        attempts: 0,
+      });
+      hook.lastTriggeredAt = Date.now();
+    }
+  }
 
   return {
     async createBoard(input: BoardInput): Promise<Board> {
@@ -67,6 +104,7 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: now,
         payload: {},
       });
+      enqueue(input.boardId, "post.created", { itemId: id });
       return item;
     },
     async findItem(id: string): Promise<FeedbackItem | null> {
@@ -113,6 +151,12 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: Date.now(),
         payload: {},
       });
+      if (VOTE_MILESTONES.includes(item.voteCount)) {
+        enqueue(item.boardId, "vote.milestone", {
+          itemId: item.id,
+          voteCount: item.voteCount,
+        });
+      }
       return { added: true, voteCount: item.voteCount };
     },
     async uncastVote(input: { itemId: string; actorId: string }) {
@@ -162,6 +206,11 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: Date.now(),
         payload: { from, to: input.state },
       });
+      enqueue(item.boardId, "post.status_changed", {
+        itemId: item.id,
+        from,
+        to: input.state,
+      });
     },
     async merge(plan: MergePlan): Promise<void> {
       const source = items.get(plan.sourceId);
@@ -189,6 +238,10 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: plan.mergedAt,
         payload: { targetId: plan.targetId, reason: plan.reason },
       });
+      enqueue(source.boardId, "post.merged", {
+        sourceId: plan.sourceId,
+        targetId: plan.targetId,
+      });
     },
     async appendEvent(event: Omit<FeedbackEvent, "id">): Promise<void> {
       events.push({ ...event, id: nextId("evt") });
@@ -206,7 +259,8 @@ function createMemoryRepository(): FeedbackRepository {
         if (!item || item.boardId !== input.boardId) {
           throw new Error("Linked items must exist on this board.");
         }
-      }      const now = Date.now();
+      }
+      const now = Date.now();
       const id = nextId("entry");
       const entry: ChangelogEntry = {
         id,
@@ -220,6 +274,7 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: now,
       };
       changelog.set(id, entry);
+      enqueue(input.boardId, "changelog.published", { entryId: id });
       return entry;
     },
     async listChangelog(input: {
@@ -272,6 +327,117 @@ function createMemoryRepository(): FeedbackRepository {
       return [...lanes.values()]
         .filter((lane) => lane.boardId === input.boardId)
         .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+    },
+    async createWebhook(input: WebhookInput) {
+      if (!/^https?:\/\//.test(input.url)) {
+        throw new Error("Webhook URL must be http(s).");
+      }
+      const secret = generateWebhookSecret();
+      const hook: Webhook & { secret: string } = {
+        id: nextId("hook"),
+        boardId: input.boardId,
+        url: input.url,
+        secretPreview: secretPreview(secret),
+        events: [...input.events],
+        active: true,
+        failureCount: 0,
+        secret,
+      };
+      webhooks.set(hook.id, hook);
+      const { secret: _, ...webhook } = hook;
+      void _;
+      return { webhook, secret };
+    },
+    async listWebhooks(input: { boardId: string }) {
+      return [...webhooks.values()]
+        .filter((hook) => hook.boardId === input.boardId)
+        .map(({ secret: _, ...webhook }) => {
+          void _;
+          return webhook;
+        });
+    },
+    async updateWebhook(input: {
+      id: string;
+      url?: string;
+      events?: readonly WebhookEventType[];
+      active?: boolean;
+    }): Promise<void> {
+      const hook = webhooks.get(input.id);
+      assert.ok(hook, "webhook must exist to update");
+      if (input.url !== undefined) {
+        if (!/^https?:\/\//.test(input.url)) {
+          throw new Error("Webhook URL must be http(s).");
+        }
+        hook.url = input.url;
+      }
+      if (input.events !== undefined) hook.events = [...input.events];
+      if (input.active !== undefined) hook.active = input.active;
+    },
+    async rotateWebhookSecret(input: { id: string }) {
+      const hook = webhooks.get(input.id);
+      assert.ok(hook, "webhook must exist to rotate");
+      const secret = generateWebhookSecret();
+      hook.secret = secret;
+      hook.secretPreview = secretPreview(secret);
+      hook.failureCount = 0;
+      return { secret };
+    },
+    async deleteWebhook(input: { id: string }): Promise<void> {
+      assert.ok(webhooks.delete(input.id), "webhook must exist to delete");
+      for (const [id, delivery] of deliveries) {
+        if (delivery.webhookId === input.id) deliveries.delete(id);
+      }
+    },
+    async listDeliveries(input: {
+      webhookId?: string;
+      status?: Delivery["status"];
+      limit?: number;
+    }) {
+      return [...deliveries.values()]
+        .filter((d) => !input.webhookId || d.webhookId === input.webhookId)
+        .filter((d) => !input.status || d.status === input.status)
+        .slice(0, input.limit ?? 50);
+    },
+    async recordDeliveryOutcome(input: {
+      deliveryId: string;
+      ok: boolean;
+      error?: string;
+      at?: number;
+    }) {
+      const delivery = deliveries.get(input.deliveryId);
+      assert.ok(delivery, "delivery must exist");
+      const hook = webhooks.get(delivery.webhookId);
+      const now = input.at ?? Date.now();
+      delivery.attempts += 1;
+      if (input.ok) {
+        delivery.status = "delivered";
+        delivery.deliveredAt = now;
+        delivery.lastError = undefined;
+        if (hook) {
+          hook.failureCount = 0;
+          hook.lastTriggeredAt = now;
+        }
+        return { ...delivery };
+      }
+      delivery.lastError = input.error ?? "delivery failed";
+      const retryAt = nextRetryAt(delivery.attempts, now);
+      if (retryAt === null) {
+        delivery.status = "failed";
+        delivery.nextRetryAt = undefined;
+        if (hook) {
+          hook.failureCount += 1;
+          hook.active = false;
+          hook.lastError = delivery.lastError;
+        }
+      } else {
+        delivery.status = "pending";
+        delivery.nextRetryAt = retryAt;
+        if (hook) {
+          hook.failureCount += 1;
+          hook.lastError = delivery.lastError;
+        }
+      }
+      return { ...delivery };
     },
   };
 }
