@@ -10,7 +10,7 @@
     "test": "npm run test --workspace=@userr/core && npm run test --workspace=@userr/convex && npm run test --workspace=@userr/cli",
     "typecheck": "npm run typecheck --workspace=@userr/core && npm run typecheck --workspace=@userr/convex && npm run typecheck --workspace=@userr/react",
     "lint": "npm run typecheck",
-    "userr": "node packages/cli/dist/index.mjs"
+    "userr": "node packages/cli/src/index.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.3",

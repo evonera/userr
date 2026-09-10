@@ -4,7 +4,7 @@
   "description": "Safe installer for Userr.",
   "license": "MIT",
   "type": "module",
-  "bin": { "userr": "./dist/index.mjs" },
-  "files": ["dist"],
+  "bin": { "userr": "./src/index.mjs" },
+  "files": ["src"],
   "scripts": { "test": "node --test test/**/*.test.mjs" }
 }
