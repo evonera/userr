@@ -56,7 +56,14 @@ API keys, or customer secrets.
 Phase 2: Postgres/Neon headless parity (Drizzle schema, transactional
 vote/merge, route-handler factory) running the shared conformance suite green.
 
-## Completed 2026-09-10 — Phase 1 Convex headless reference
+## Working agreements
+
+- One phase = one branch = one PR (`phase-N-topic` → `main`), merged with
+  rebase for linear history after CI (`verify`) is green. Direct pushes to
+  `main` are only for trivial docs follow-ups.
+- Shipped: PR #1 (Phase 1, merged 2026-09-10).
+
+## Completed 2026-09-10 — PR #1 (Phase 1, rebased onto main)
 
 - Component modules (boards/items/comments/subscriptions/embeddings) with
   `args`+`returns` validators on every function; cursor pagination via
@@ -73,6 +80,10 @@ vote/merge, route-handler factory) running the shared conformance suite green.
   suffix, so tests forge ghost IDs by bumping the numeric prefix.
 - Verified: build, 4 core + 38 convex (+1 skip) + 1 CLI tests, typecheck clean,
   CLI dry-run green. Example host scaffold in `fixtures/next-convex`.
+- CI lesson: the CLI entry lived only in gitignored `dist/` and was never
+  committed, so CI's fresh checkout failed. Source now lives in
+  `packages/cli/src/index.mjs` (bin + root script + test updated). Never ship
+  runnable code from a gitignored path.
 
 ## Completed 2026-09-10 — docs reconciliation (docs-only PR)
 
