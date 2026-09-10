@@ -10,9 +10,16 @@ API keys, or customer secrets.
 
 ## Current implementation state
 
-- `@userr/core`: zero-runtime-dependency TypeScript domain types and tested rules.
-- `@userr/convex`: early component schema/mutations; requires a real Convex app
-  to generate bindings, so do not claim it is published or fully integrated.
+- `@userr/core`: zero-runtime-dependency TypeScript domain types, tested rules,
+  and the shared conformance suite (`runConformanceSuite`, self-validated
+  against an in-memory adapter). `FeedbackRepository` now covers
+  createBoard/createItem, vote/unvote, merge, and event listing.
+- `@userr/convex`: complete headless reference — boards/items/comments/
+  subscriptions/embeddings with cursor pagination (`convex-helpers`),
+  idempotent votes, atomic merges with subscription transfer, tombstoned
+  comments (depth ≤ 5), lexical duplicates, host-driven embedding enrichment,
+  and host authorization wrappers. 38 tests pass via convex-test (1
+  deployment-gated vector skip); `./test` register helper exported.
 - `@userr/react`: provider, card, and submission-form primitives.
 - `@userr/cli`: safe `init`, `doctor`, and `upgrade` skeleton; Convex + Next only.
 - No Neon/Postgres, Supabase, widget, capture, roadmap/changelog, admin, webhook,
@@ -46,9 +53,26 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Finish Phase 1: implement a complete host-wrapped Convex component with
-component-safe pagination, typed queries/mutations, comments/subscriptions,
-state authorization, async embedding hook, and component tests/example app.
+Phase 2: Postgres/Neon headless parity (Drizzle schema, transactional
+vote/merge, route-handler factory) running the shared conformance suite green.
+
+## Completed 2026-09-10 — Phase 1 Convex headless reference
+
+- Component modules (boards/items/comments/subscriptions/embeddings) with
+  `args`+`returns` validators on every function; cursor pagination via
+  `convex-helpers`; host guards (`requireRole`/`requireModerator`/
+  `assertTransitionAllowed`) backed by `@userr/core`.
+- `_generated/` produced offline from the CLI's own templates (checked in, so
+  tests run with no deployment); initial stub `api.ts` — `npx convex dev`
+  upgrades it to fully typed bindings once authorized.
+- Findings recorded for future agents: object validators reject unexpected
+  fields (strip `embedding`/`deletedAt` from public views); vector search is
+  action-only (`ctx.vectorSearch`, not `db.query().withVectorIndex()` in this
+  SDK); convex-test implements no vector/search-syscall paths (lexical search
+  works, vector test skipped as deployment-gated); `v.id` validates table
+  suffix, so tests forge ghost IDs by bumping the numeric prefix.
+- Verified: build, 4 core + 38 convex (+1 skip) + 1 CLI tests, typecheck clean,
+  CLI dry-run green. Example host scaffold in `fixtures/next-convex`.
 
 ## Completed 2026-09-10 — docs reconciliation (docs-only PR)
 

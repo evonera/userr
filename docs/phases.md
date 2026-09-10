@@ -10,14 +10,18 @@ tests pass; later phase detail lives in [delivery-plan.md](./delivery-plan.md).
 - [x] Domain invariants for transitions, canonical merges, cursor pages, and
   lexical fallback matching.
 
-## Phase 1 — Convex headless reference
+## Phase 1 — Convex headless reference (shipped 2026-09-10)
 
-- Complete component queries, cursor pagination, comments, subscriptions,
+- [x] Component queries, cursor pagination, comments, subscriptions,
   status transitions, moderation, and host authorization wrappers.
-- Add `convex-test` coverage, an example app, scheduled optional embedding jobs,
-  and public API validators.
-- Do not expose component functions directly to browsers; host functions resolve
-  identity and permission first.
+- [x] `convex-test` coverage (38 passing, 1 deployment-gated vector skip),
+  `./test` register helper, fixtures example app, host enrichment recipe.
+- [x] Shared domain conformance suite defined in `@userr/core` and passing
+  against both the in-memory adapter and the Convex component.
+- [ ] Deployment-gated remainder: `npx convex dev` once authorized (fully typed
+  `api.ts`, `findSimilarVector` live run, fixture reactivity check).
+- Host functions resolve identity and permission first; component functions
+  stay client-unreachable.
 
 ## Phase 2 — Postgres/Neon headless parity
 
