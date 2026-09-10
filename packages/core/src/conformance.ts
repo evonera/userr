@@ -165,4 +165,14 @@ export async function runConformanceSuite(
   const eventCount = afterStates.length;
   await repo.setState({ itemId: target.id, state: "planned", actorId: "moderator" });
   assert.equal((await repo.listEvents({ itemId: target.id })).length, eventCount);
+
+  // 10. States outside the contract are rejected, never persisted.
+  await assert.rejects(
+    repo.setState({
+      itemId: target.id,
+      state: "nonsense" as ItemState,
+      actorId: "moderator",
+    }),
+  );
+  assert.equal((await repo.findItem(target.id))?.state, "planned");
 }

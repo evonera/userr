@@ -1,6 +1,8 @@
 import {
   assertTransition,
+  ITEM_STATES,
   type FeedbackRepository,
+  type ItemState,
   type Role,
   type StatusTransition,
 } from "@userr/core";
@@ -228,20 +230,33 @@ export function createRequestHandler(
         }
         if (parts[2] === "state" && req.method === "POST") {
           const body = await readBody(req);
-          const next = str(body.state, "state") as never;
+          const next = str(body.state, "state");
+          // Contract first: the store only persists known states, and
+          // `merged` is reachable solely through the merge operation.
+          if (
+            !(ITEM_STATES as readonly string[]).includes(next) ||
+            next === "merged"
+          ) {
+            return failure(
+              `Invalid state "${next}". Expected one of: ${ITEM_STATES.filter(
+                (s) => s !== "merged",
+              ).join(", ")}.`,
+              400,
+            );
+          }
           const moderatorId = await moderator(req, item.boardId);
           if (options.transitions && options.resolveRole) {
             const role = await options.resolveRole(moderatorId, item.boardId);
             assertTransition({
               current: item.state,
-              next: next as never,
+              next: next as ItemState,
               role,
               transitions: options.transitions,
             });
           }
           await repo.setState({
             itemId,
-            state: next as never,
+            state: next as ItemState,
             actorId: moderatorId,
           });
           return json({ ok: true });

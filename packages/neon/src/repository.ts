@@ -4,6 +4,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 
 import {
+  ITEM_STATES,
   normalizeText,
   type Board,
   type BoardInput,
@@ -290,7 +291,9 @@ export function createRepository(db: Database): FeedbackRepository {
         const [updated] = await tx
           .update(schema.items)
           .set({
-            voteCount: item.voteCount + 1,
+            // Atomic increment: never derive from a snapshot, or concurrent
+            // votes overwrite each other (lost update).
+            voteCount: sql`${schema.items.voteCount} + 1`,
             updatedAt: Date.now(),
           })
           .where(eq(schema.items.id, input.itemId))
@@ -307,7 +310,8 @@ export function createRepository(db: Database): FeedbackRepository {
       });
     },
 
-    async uncastVote(input: { itemId: string; actorId: string }) {      return db.transaction(async (tx) => {
+    async uncastVote(input: { itemId: string; actorId: string }) {
+      return db.transaction(async (tx) => {
         const item = await requireItem(tx as Database, input.itemId);
         const deleted = await tx
           .delete(schema.votes)
@@ -324,7 +328,7 @@ export function createRepository(db: Database): FeedbackRepository {
         const [updated] = await tx
           .update(schema.items)
           .set({
-            voteCount: Math.max(0, item.voteCount - 1),
+            voteCount: sql`greatest(0, ${schema.items.voteCount} - 1)`,
             updatedAt: Date.now(),
           })
           .where(eq(schema.items.id, input.itemId))
@@ -349,6 +353,9 @@ export function createRepository(db: Database): FeedbackRepository {
       state: ItemState;
       actorId: string;
     }): Promise<void> {
+      if (!ITEM_STATES.includes(input.state)) {
+        throw new Error(`Invalid state "${input.state}".`);
+      }
       await db.transaction(async (tx) => {
         const t = tx as Database;
         const item = await requireItem(t, input.itemId);
@@ -436,7 +443,7 @@ export function createRepository(db: Database): FeedbackRepository {
         await t
           .update(schema.items)
           .set({
-            voteCount: target.voteCount + fresh.length,
+            voteCount: sql`${schema.items.voteCount} + ${fresh.length}`,
             updatedAt: now,
           })
           .where(eq(schema.items.id, plan.targetId));
@@ -653,7 +660,10 @@ export async function createComment(
     if (!row) throw new Error("Comment creation failed.");
     await t
       .update(schema.items)
-      .set({ commentCount: item.commentCount + 1, updatedAt: now })
+      .set({
+        commentCount: sql`${schema.items.commentCount} + 1`,
+        updatedAt: now,
+      })
       .where(eq(schema.items.id, input.itemId));
     await t.insert(schema.events).values({
       id: newId("evt"),
@@ -748,11 +758,11 @@ export async function removeComment(
       .update(schema.comments)
       .set({ deletedAt: now, updatedAt: now })
       .where(eq(schema.comments.id, input.commentId));
-    const item = await requireItem(t, comment.itemId);
+    await requireItem(t, comment.itemId);
     await t
       .update(schema.items)
       .set({
-        commentCount: Math.max(0, item.commentCount - 1),
+        commentCount: sql`greatest(0, ${schema.items.commentCount} - 1)`,
         updatedAt: now,
       })
       .where(eq(schema.items.id, comment.itemId));
