@@ -154,4 +154,15 @@ export async function runConformanceSuite(
   assert.ok(types.includes("created"), "missing created event");
   assert.ok(types.includes("vote_added"), "missing vote_added event");
   assert.ok(types.includes("merged"), "missing merged event");
+
+  // 9. Status transitions persist and audit from/to; repeats are no-ops.
+  await repo.setState({ itemId: target.id, state: "planned", actorId: "moderator" });
+  const planned = await repo.findItem(target.id);
+  assert.equal(planned?.state, "planned");
+  const afterStates = await repo.listEvents({ itemId: target.id });
+  const change = afterStates.find((event) => event.type === "state_changed");
+  assert.deepEqual(change?.payload, { from: "inbox", to: "planned" });
+  const eventCount = afterStates.length;
+  await repo.setState({ itemId: target.id, state: "planned", actorId: "moderator" });
+  assert.equal((await repo.listEvents({ itemId: target.id })).length, eventCount);
 }

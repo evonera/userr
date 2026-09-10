@@ -1,0 +1,32 @@
+{
+  "name": "@userr/neon",
+  "version": "0.1.0",
+  "description": "Postgres (Neon) adapter for Userr.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./handler": "./src/handler.ts"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.44.0",
+    "pg": "^8.0.0"
+  },
+  "dependencies": {
+    "@userr/core": "0.1.0",
+    "drizzle-orm": "^0.44.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "drizzle-kit": "^0.31.0",
+    "pg": "^8.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate"
+  }
+}

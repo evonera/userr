@@ -23,12 +23,12 @@ tests pass; later phase detail lives in [delivery-plan.md](./delivery-plan.md).
 - Host functions resolve identity and permission first; component functions
   stay client-unreachable.
 
-## Phase 2 — Postgres/Neon headless parity
+## Phase 2 — Postgres/Neon headless parity (in review, unmerged)
 
-- Add Drizzle schema/migrations, `pgvector`, transactional vote/merge behavior,
+- Drizzle schema/migrations, `pgvector`, transactional vote/merge behavior,
   Next route-handler factory, and BYO auth integration points.
-- Run the shared domain conformance suite against Convex and Postgres.
-- Document polling/SSE baseline honestly; no cross-backend “live” claim until it exists.
+- The shared domain conformance suite passes against Convex and Postgres.
+- Polling/SWR baseline documented honestly; no cross-backend “live” claim.
 
 ## Phase 3 — Public portal and updates
 

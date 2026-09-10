@@ -22,7 +22,12 @@ API keys, or customer secrets.
   deployment-gated vector skip); `./test` register helper exported.
 - `@userr/react`: provider, card, and submission-form primitives.
 - `@userr/cli`: safe `init`, `doctor`, and `upgrade` skeleton; Convex + Next only.
-- No Neon/Postgres, Supabase, widget, capture, roadmap/changelog, admin, webhook,
+  Generates `userr.config.ts` (renamed from `feedback.config.ts` on the
+  Phase 2 branch).
+- `@userr/neon` (Phase 2, in review): Drizzle schema + committed migrations,
+  transactional `FeedbackRepository`, `toNextJsHandler` route factory, tested
+  against PGlite with zero credentials.
+- No Supabase, widget, capture, roadmap/changelog, admin, webhook,
   or external integration implementation exists yet.
 
 ## Decisions that must not drift
@@ -53,8 +58,24 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Phase 2: Postgres/Neon headless parity (Drizzle schema, transactional
-vote/merge, route-handler factory) running the shared conformance suite green.
+Phase 2 is open as a PR (unmerged): `phase-2-neon-parity`. Next: review, merge,
+then Phase 3 (public portal).
+
+## Completed (Phase 2 branch, in review)
+
+- `@userr/neon`: Drizzle schema 1:1 with component tables + committed
+  migrations (extensions first in 0000 — `vector(1536)` type must exist before
+  CREATE TABLE; HNSW + trigram indexes in 0001). PGlite needs explicit contrib
+  registration (`vector` + `pg_trgm` extensions) — CREATE EXTENSION alone fails.
+- `createRepository`: same contract, transactions throughout, unique vote
+  constraint as concurrency arbiter, `onConflictDoNothing().returning()` for
+  portable transfer counts. Conformance suite passes on Postgres — parity proven.
+- `setState` added to the contract (all three adapters + suite step 9).
+  Handler maps core rule codes to statuses (INVALID_TRANSITION→400,
+  PERMISSION_DENIED→403, MERGE_CONFLICT→409); moderator paths fail closed
+  without `resolveRole`; vector search is raw-SQL cosine (`<=>`) since Drizzle
+  has no native vector column (customType).
+- Full repo green: 4 core + 38 convex (+1 skip) + 3 neon + 1 CLI, typecheck clean.
 
 ## Working agreements
 
