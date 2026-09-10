@@ -41,11 +41,16 @@ tests pass; later phase detail lives in [delivery-plan.md](./delivery-plan.md).
   theming.
 - Residuals: deployment-gated vector test; fixture Next app.
 
-## Phase 4 — Triage and closed loop
+## Phase 4 — Triage and closed loop (in review, unmerged)
 
-- Add inbox, moderation, bulk actions, keyboard workflow, merge review, roadmap
-  board, prioritization, changelog publishing, subscriptions, and host email hooks.
-- Implement the generic signed webhook outbox and deliveries ledger first.
+- Webhook outbox first: signed envelopes (HMAC-SHA256), idempotency keys,
+  bounded retries with failing transition, deliveries ledger; Convex cron
+  deliverer + Neon host-worker `processOutbox`.
+- Moderation storage (state + board blocklist), report/review flows, bulk
+  transitions (all-or-nothing, ≤50), all suite-gated on three adapters.
+- Triage React surfaces (inbox + shortcuts, moderation queue, merge review,
+  DnD roadmap, changelog publisher) + `userr add` admin pages + Resend
+  email-hook scaffold (keys stay host-owned).
 
 ## Phase 5 — Contextual widget and capture
 

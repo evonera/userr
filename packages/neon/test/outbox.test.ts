@@ -211,4 +211,49 @@ describe("webhook outbox", () => {
     );
     expect(removed.status).toBe(200);
   });
+
+  test("webhook update patches url, events, and active flag", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const handle = createRequestHandler({
+      db,
+      identify: async (req) => req.headers.get("x-actor"),
+      resolveRole: async (actorId) =>
+        actorId === "moderator" ? "moderator" : "member",
+    });
+    const board = (await (
+      await handle(
+        request("/boards", {
+          method: "POST",
+          actor: "owner",
+          body: { slug: "b", name: "B" },
+        }),
+      )
+    ).json()) as { id: string };
+    const created = (await (
+      await handle(
+        request("/webhooks", {
+          method: "POST",
+          actor: "moderator",
+          body: {
+            boardId: board.id,
+            url: "https://x.example/h",
+            events: ["post.created"],
+          },
+        }),
+      )
+    ).json()) as { webhook: { id: string } };
+    const patched = await handle(
+      request(`/webhooks/${created.webhook.id}`, {
+        method: "PATCH",
+        actor: "moderator",
+        body: { active: false, events: ["post.merged"] },
+      }),
+    );
+    expect(patched.status).toBe(200);
+    const listed = (await (
+      await handle(request(`/webhooks?boardId=${board.id}`, { actor: "moderator" }))
+    ).json()) as { active: boolean; events: string[] }[];
+    expect(listed[0]).toMatchObject({ active: false, events: ["post.merged"] });
+  });
 });

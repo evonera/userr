@@ -111,7 +111,55 @@ function filesForAdd({ backend, framework }) {
     files["app/api/userr/[...path]/route.ts"] = neonApiRoute();
   }
   files["app/sitemap.ts"] = sitemapFile({ backend });
+  files["app/admin/feedback/page.tsx"] = triagePage({ backend });
+  files["app/admin/feedback/moderation/page.tsx"] = moderationPage({ backend });
+  files["app/admin/feedback/changelog/new/page.tsx"] = publisherPage({ backend });
+  files["lib/userr-email.ts"] = emailHook();
   return files;
+}
+
+function triagePage({ backend }) {
+  void backend;
+  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, TriageInbox } from "@userr/react";\n\n// TODO: gate this route to moderators (middleware + resolveRole), then wire:\n// - items: unreviewed sorted by votes (Convex: api.items.list; Neon: client.listItems)\n// - onBulkState: setStateMany (Convex: api.items.setStateMany; Neon: POST /items/bulk/state)\n// - onOpen: route to your item detail view.\nexport default function TriagePage() {\n  return <FeedbackProvider><main>{/* <TriageInbox items={items} onBulkState={...} /> */}</main></FeedbackProvider>;\n}\n`;
+}
+
+function moderationPage({ backend }) {
+  void backend;
+  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, ModerationQueue, MergeReview } from "@userr/react";\n\n// TODO: gate to moderators, then wire:\n// - queue: moderation pending (Convex: api.items.list + moderation filter; Neon: GET /moderation)\n// - onReview: approve/reject/spam (Convex: api.moderation.review; Neon: POST /items/:id/review)\n// - MergeReview candidates: findSimilar per open item; confirm calls merge.\nexport default function ModerationPage() {\n  return <FeedbackProvider><main>{/* <ModerationQueue items={queue} /> */}</main></FeedbackProvider>;\n}\n`;
+}
+
+function publisherPage({ backend }) {
+  void backend;
+  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, ChangelogPublisher } from "@userr/react";\nimport { notifySubscribers } from "@/lib/userr-email";\n\n// TODO: gate to moderators, then wire onPublish:\n// 1. publish the entry (Convex: api.changelog.publish; Neon: POST /changelog),\n// 2. fetch subscriber emails for linked items,\n// 3. call notifySubscribers (lib/userr-email.ts) with your Resend key.\nexport default function ChangelogPublisherPage() {\n  void notifySubscribers;\n  return <FeedbackProvider><main>{/* <ChangelogPublisher shippedItems={shipped} onPublish={...} /> */}</main></FeedbackProvider>;\n}\n`;
+}
+
+function emailHook() {
+  return `${OWNERSHIP}// Host-owned voter notification hook. Install resend (\`npm i resend\`), set
+// RESEND_API_KEY, and call notifySubscribers after a status change lands
+// (from your setState wrapper or a webhook receiver). Keys never enter Userr.
+import { Resend } from "resend";
+
+export interface StatusNotification {
+  postTitle: string;
+  postUrl: string;
+  from: string;
+  to: string;
+  recipients: string[];
+}
+
+export async function notifySubscribers(input: StatusNotification): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("Set RESEND_API_KEY to send voter notifications.");
+  if (input.recipients.length === 0) return;
+  const resend = new Resend(apiKey);
+  await resend.emails.send({
+    from: "updates@example.com", // TODO: your verified sender
+    to: input.recipients,
+    subject: \`"\${input.postTitle}" moved to \${input.to}\`,
+    text: \`"\${input.postTitle}" moved from \${input.from} to \${input.to}. See what's new: \${input.postUrl}\`,
+  });
+}
+`;
 }
 
 function sitemapFile({ backend }) {

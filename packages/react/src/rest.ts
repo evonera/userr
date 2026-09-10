@@ -227,6 +227,18 @@ export function createRestClient(options: RestClientOptions) {
         input,
       );
     },
+    async updateWebhook(
+      id: string,
+      input: { url?: string; events?: string[]; active?: boolean },
+    ) {
+      return send<{ ok: boolean }>(`/webhooks/${id}`, "PATCH", input);
+    },
+    async rotateWebhookSecret(id: string) {
+      return send<{ secret: string }>(`/webhooks/${id}/rotate`, "POST", {});
+    },
+    async deleteWebhook(id: string) {
+      return send<{ ok: boolean }>(`/webhooks/${id}`, "DELETE");
+    },
     async subscribe(itemId: string, input: Record<string, unknown> = {}) {
       return send<{ ok: boolean }>(`/items/${itemId}/subscribe`, "POST", input);
     },
