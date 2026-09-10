@@ -294,8 +294,7 @@ describe("items.merge", () => {
     expect(merged?.payload).toMatchObject({ targetId: target });
   });
 
-  test("rejects self, cross-board, and chained merges", async () => {
-    const t = setup();
+  test("rejects self, cross-board, and chained merges", async () => {    const t = setup();
     const boardA = await createBoard(t);
     const boardB = await createBoard(t);
     const a1 = await createItem(t, boardA, { title: "A1" });
@@ -327,6 +326,25 @@ describe("items.merge", () => {
         actorId: "moderator",
       }),
     ).rejects.toThrow();
+  });
+
+  test("rejects merging away a shipped source", async () => {
+    const t = setup();
+    const boardId = await createBoard(t);
+    const shipped = await createItem(t, boardId, { title: "Shipped" });
+    const target = await createItem(t, boardId, { title: "Target" });
+    await t.mutation(api.items.setState, {
+      itemId: shipped,
+      state: "shipped",
+      actorId: "moderator",
+    });
+    await expect(
+      t.mutation(api.items.merge, {
+        sourceId: shipped,
+        targetId: target,
+        actorId: "moderator",
+      }),
+    ).rejects.toThrow(/completed or canonical/);
   });
 });
 

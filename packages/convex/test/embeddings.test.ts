@@ -28,8 +28,7 @@ describe("embeddings", () => {
     expect(after.map((p) => p.itemId)).not.toContain(itemId);
   });
 
-  test("rejects empty embeddings and unknown items", async () => {
-    const t = setup();
+  test("rejects empty embeddings and unknown items", async () => {    const t = setup();
     const boardId = await createBoard(t);
     const itemId = await createItem(t, boardId);
     await expect(
@@ -41,6 +40,18 @@ describe("embeddings", () => {
         embedding: unitVector(1),
       }),
     ).rejects.toThrow("Feedback item not found.");
+  });
+
+  test("rejects wrong-dimension vectors", async () => {
+    const t = setup();
+    const boardId = await createBoard(t);
+    const itemId = await createItem(t, boardId);
+    await expect(
+      t.mutation(api.embeddings.storeEmbedding, {
+        itemId,
+        embedding: [0.1, 0.2],
+      }),
+    ).rejects.toThrow(/dimensions/);
   });
 
   test("stored vectors stay out of public item views", async () => {
