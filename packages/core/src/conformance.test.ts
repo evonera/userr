@@ -167,6 +167,9 @@ function createMemoryRepository(): FeedbackRepository {
       const source = items.get(plan.sourceId);
       const target = items.get(plan.targetId);
       assert.ok(source && target, "merge endpoints must exist");
+      if (source.state === "shipped" || target.state === "merged") {
+        throw new Error("This merge would lose a completed or canonical record.");
+      }
       const sourceVoters = votes.get(plan.sourceId) ?? new Set<string>();
       const targetVoters = votes.get(plan.targetId) ?? new Set<string>();
       for (const voter of sourceVoters) {

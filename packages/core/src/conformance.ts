@@ -114,6 +114,38 @@ export async function runConformanceSuite(
   assert.ok(canonical);
   assert.equal(canonical.id, target.id);
 
+  // 5b. Merging away a shipped record is rejected on every adapter (it would
+  // lose a completed canonical entry). Uses fresh items so later steps keep
+  // their fixtures. The plan is built literally: core's createMergePlan would
+  // (correctly) reject first, but this step must prove the ADAPTER refuses.
+  const shippedSource = await repo.createItem({
+    boardId: board.id,
+    title: "Shipped source",
+    body: "Already shipped.",
+    kind: "idea",
+    authorId: "alice",
+  });
+  await repo.setState({
+    itemId: shippedSource.id,
+    state: "shipped",
+    actorId: "moderator",
+  });
+  const spare = await repo.createItem({
+    boardId: board.id,
+    title: "Spare",
+    body: "Spare body.",
+    kind: "idea",
+    authorId: "alice",
+  });
+  await assert.rejects(
+    repo.merge({
+      sourceId: shippedSource.id,
+      targetId: spare.id,
+      actorId: "moderator",
+      mergedAt: Date.now(),
+    }),
+  );
+
   // 6. Cursor pagination walks every item exactly once.
   const titles = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon"];
   for (const title of titles) {
@@ -136,8 +168,8 @@ export async function runConformanceSuite(
     if (page.nextCursor === null) break;
     cursor = page.nextCursor;
   }
-  // 2 merged-side items + 5 new ones = 7 total.
-  assert.equal(seen.size, 7);
+  // 2 merged-side items + 2 shipped-check items + 5 new ones = 9 total.
+  assert.equal(seen.size, 9);
 
   // 7. State filter narrows the listing.
   const inbox = await repo.listItems({

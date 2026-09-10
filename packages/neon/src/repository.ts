@@ -4,6 +4,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 
 import {
+  EMBEDDING_DIMENSIONS,
   ITEM_STATES,
   normalizeText,
   type Board,
@@ -426,6 +427,11 @@ export function createRepository(db: Database): FeedbackRepository {
         ) {
           throw new Error("Invalid merge target.");
         }
+        if (source.state === "shipped" || target.state === "merged") {
+          throw new Error(
+            "This merge would lose a completed or canonical record.",
+          );
+        }
         const now = Date.now();
         const sourceVotes = await t
           .select({ actorId: schema.votes.actorId })
@@ -747,6 +753,11 @@ export async function storeEmbedding(
 ): Promise<void> {
   if (input.embedding.length === 0) {
     throw new Error("Embedding must not be empty.");
+  }
+  if (input.embedding.length !== EMBEDDING_DIMENSIONS) {
+    throw new Error(
+      `Embedding must have ${EMBEDDING_DIMENSIONS} dimensions, got ${input.embedding.length}.`,
+    );
   }
   await requireItem(db, input.itemId);
   await db
