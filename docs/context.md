@@ -61,7 +61,7 @@ vote/merge, route-handler factory) running the shared conformance suite green.
 - One phase = one branch = one PR (`phase-N-topic` → `main`), merged with
   rebase for linear history after CI (`verify`) is green. Direct pushes to
   `main` are only for trivial docs follow-ups.
-- Shipped: PR #1 (Phase 1, merged 2026-09-10).
+- Shipped: PR #1 (Phase 1, merged 2026-09-10), PR #2 (exact-duplicate fix, merged 2026-09-10).
 
 ## Completed 2026-09-10 — PR #1 (Phase 1, rebased onto main)
 
@@ -84,6 +84,10 @@ vote/merge, route-handler factory) running the shared conformance suite green.
   committed, so CI's fresh checkout failed. Source now lives in
   `packages/cli/src/index.mjs` (bin + root script + test updated). Never ship
   runnable code from a gitignored path.
+- Review lesson (Greptile P1 on PR #1, fixed in PR #2): never use `.unique()`
+  on a deliberately non-unique index. `findSimilar` scans a bounded `.take(5)`
+  set for the first non-merged exact hit; regression test covers two live
+  identical titles.
 
 ## Completed 2026-09-10 — docs reconciliation (docs-only PR)
 
