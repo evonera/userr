@@ -26,6 +26,7 @@ import {
   type ItemState,
   type LaneInput,
   type MergePlan,
+  type ModerationState,
   type RoadmapLane,
   type Webhook,
   type WebhookEventType,
@@ -73,6 +74,7 @@ function toItem(row: typeof schema.items.$inferSelect): FeedbackItem {
     voteCount: row.voteCount,
     commentCount: row.commentCount,
     mergedInto: row.mergedInto ?? undefined,
+    moderation: row.moderation as FeedbackItem["moderation"],
     labels: row.labels,
     context:
       (row.context as FeedbackItem["context"]) ?? undefined,
@@ -190,6 +192,24 @@ async function requireItem(
   return item;
 }
 
+async function requireUnblocked(
+  db: Database,
+  boardId: string,
+  actorId: string,
+): Promise<void> {
+  const rows = await db
+    .select({ boardId: schema.blockedActors.boardId })
+    .from(schema.blockedActors)
+    .where(
+      and(
+        eq(schema.blockedActors.boardId, boardId),
+        eq(schema.blockedActors.actorId, actorId),
+      ),
+    )
+    .limit(1);
+  if (rows[0]) throw new Error("Permission denied: actor is blocked on this board.");
+}
+
 export async function getBoard(
   db: Database,
   boardId: string,
@@ -268,20 +288,22 @@ export function createRepository(db: Database): FeedbackRepository {
       const title = input.title.trim();
       if (title.length === 0) throw new Error("Title is required.");
       return db.transaction(async (tx) => {
-        const board = await tx
+        const t = tx as Database;
+        const board = await t
           .select()
           .from(schema.boards)
           .where(eq(schema.boards.id, input.boardId))
           .limit(1)
           .then((rows) => rows[0]);
         if (!board) throw new Error("Board not found.");
+        await requireUnblocked(t, input.boardId, input.authorId);
         if (!board.allowedKinds.includes(input.kind)) {
           throw new Error(`Kind "${input.kind}" is not allowed on this board.`);
         }
         const id = newId("item");
         const publicId = id.slice(-8).toUpperCase();
         const now = Date.now();
-        const [row] = await tx
+        const [row] = await t
           .insert(schema.items)
           .values({
             id,
@@ -305,7 +327,7 @@ export function createRepository(db: Database): FeedbackRepository {
           })
           .returning();
         if (!row) throw new Error("Item creation failed.");
-        await tx.insert(schema.events).values({
+        await t.insert(schema.events).values({
           id: newId("evt"),
           itemId: id,
           type: "created",
@@ -313,7 +335,7 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: {},
           createdAt: now,
         });
-        await enqueueEvent(tx as Database, input.boardId, "post.created", {
+        await enqueueEvent(t, input.boardId, "post.created", {
           itemId: id,
           title,
         });
@@ -341,9 +363,13 @@ export function createRepository(db: Database): FeedbackRepository {
       cursor?: string;
       limit: number;
       state?: ItemState;
+      moderation?: ModerationState;
     }): Promise<CursorPage<FeedbackItem>> {
       const conditions = [eq(schema.items.boardId, input.boardId)];
       if (input.state) conditions.push(eq(schema.items.state, input.state));
+      if (input.moderation) {
+        conditions.push(eq(schema.items.moderation, input.moderation));
+      }
       if (input.cursor) {
         const decoded = JSON.parse(
           Buffer.from(input.cursor, "base64url").toString("utf8"),
@@ -381,6 +407,7 @@ export function createRepository(db: Database): FeedbackRepository {
       return db.transaction(async (tx) => {
         const item = await requireItem(tx as Database, input.itemId);
         if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+        await requireUnblocked(tx as Database, item.boardId, input.actorId);
         const inserted = await tx
           .insert(schema.votes)
           .values({
@@ -960,6 +987,156 @@ export function createRepository(db: Database): FeedbackRepository {
         return toDelivery(row ?? { ...delivery, attempts });
       });
     },
+
+    async setStateMany(input: {
+      itemIds: readonly string[];
+      state: ItemState;
+      actorId: string;
+    }) {
+      if (!ITEM_STATES.includes(input.state)) {
+        throw new Error(`Invalid state "${input.state}".`);
+      }
+      if (input.state === "merged") {
+        throw new Error(
+          'State "merged" is set only by the merge operation, which establishes mergedInto.',
+        );
+      }
+      if (input.itemIds.length === 0) return { updated: 0 };
+      if (input.itemIds.length > 50) {
+        throw new Error("Bulk updates are limited to 50 items.");
+      }
+      return db.transaction(async (tx) => {
+        const t = tx as Database;
+        // Validate everything before writing anything: all-or-nothing.
+        const targets = [];
+        for (const itemId of input.itemIds) {
+          const item = await requireItem(t, itemId);
+          if (item.mergedInto) {
+            throw new Error(`Item ${itemId} is merged and cannot change state.`);
+          }
+          targets.push(item);
+        }
+        const now = Date.now();
+        let updated = 0;
+        for (const item of targets) {
+          if (item.state === input.state) continue;
+          await t
+            .update(schema.items)
+            .set({ state: input.state, updatedAt: now })
+            .where(eq(schema.items.id, item.id));
+          await t.insert(schema.events).values({
+            id: newId("evt"),
+            itemId: item.id,
+            type: "state_changed",
+            actorId: input.actorId,
+            payload: { from: item.state, to: input.state },
+            createdAt: now,
+          });
+          await enqueueEvent(t, item.boardId, "post.status_changed", {
+            itemId: item.id,
+            from: item.state,
+            to: input.state,
+          });
+          updated += 1;
+        }
+        return { updated };
+      });
+    },
+
+    async reportItem(input: {
+      itemId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await requireItem(db, input.itemId);
+      const now = Date.now();
+      await db.transaction(async (tx) => {
+        const t = tx as Database;
+        await t
+          .update(schema.items)
+          .set({ moderation: "pending", updatedAt: now })
+          .where(eq(schema.items.id, input.itemId));
+        await t.insert(schema.events).values({
+          id: newId("evt"),
+          itemId: input.itemId,
+          type: "flagged",
+          actorId: input.actorId,
+          payload: input.reason ? { reason: input.reason } : {},
+          createdAt: now,
+        });
+      });
+    },
+
+    async reviewItem(input: {
+      itemId: string;
+      decision: Exclude<ModerationState, "pending">;
+      actorId: string;
+    }): Promise<void> {
+      const item = await requireItem(db, input.itemId);
+      const now = Date.now();
+      await db.transaction(async (tx) => {
+        const t = tx as Database;
+        await t
+          .update(schema.items)
+          .set({ moderation: input.decision, updatedAt: now })
+          .where(eq(schema.items.id, input.itemId));
+        await t.insert(schema.events).values({
+          id: newId("evt"),
+          itemId: input.itemId,
+          type: "moderated",
+          actorId: input.actorId,
+          payload: { from: item.moderation, to: input.decision },
+          createdAt: now,
+        });
+      });
+    },
+
+    async blockActor(input: {
+      boardId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await db
+        .insert(schema.blockedActors)
+        .values({
+          boardId: input.boardId,
+          actorId: input.actorId,
+          reason: input.reason,
+          createdAt: Date.now(),
+        })
+        .onConflictDoNothing();
+    },
+
+    async unblockActor(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<void> {
+      await db
+        .delete(schema.blockedActors)
+        .where(
+          and(
+            eq(schema.blockedActors.boardId, input.boardId),
+            eq(schema.blockedActors.actorId, input.actorId),
+          ),
+        );
+    },
+
+    async isBlocked(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<boolean> {
+      const rows = await db
+        .select({ boardId: schema.blockedActors.boardId })
+        .from(schema.blockedActors)
+        .where(
+          and(
+            eq(schema.blockedActors.boardId, input.boardId),
+            eq(schema.blockedActors.actorId, input.actorId),
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
+    },
   };
 }
 
@@ -1112,6 +1289,7 @@ export async function createComment(
     const t = tx as Database;
     const item = await requireItem(t, input.itemId);
     if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+    await requireUnblocked(t, item.boardId, input.actorId);
     if (input.parentId) {
       const parents = await t
         .select()

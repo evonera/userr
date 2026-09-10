@@ -51,7 +51,7 @@ function createMemoryRepository(): FeedbackRepository {
 
   function requireUnblocked(boardId: string, actorId: string): void {
     if (isBlocked(boardId, actorId)) {
-      throw new Error("Actor is blocked on this board.");
+      throw new Error("Permission denied: actor is blocked on this board.");
     }
   }
 

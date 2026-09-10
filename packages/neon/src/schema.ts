@@ -65,6 +65,7 @@ export const items = pgTable(
     commentCount: integer("comment_count").notNull().default(0),
     labels: jsonb("labels").$type<string[]>().notNull().default([]),
     mergedInto: text("merged_into"),
+    moderation: text("moderation").notNull().default("approved"),
     context: jsonb("context").$type<
       Record<string, string | number | boolean | null>
     >(),
@@ -80,8 +81,20 @@ export const items = pgTable(
   ],
 );
 
-export const votes = pgTable(
-  "votes",
+export const blockedActors = pgTable(
+  "blocked_actors",
+  {
+    boardId: text("board_id")
+      .notNull()
+      .references(() => boards.id),
+    actorId: text("actor_id").notNull(),
+    reason: text("reason"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.boardId, table.actorId] })],
+);
+
+export const votes = pgTable(  "votes",
   {
     itemId: text("item_id")
       .notNull()
@@ -224,4 +237,5 @@ export type Schema = {
   roadmapLanes: typeof roadmapLanes;
   webhooks: typeof webhooks;
   deliveries: typeof deliveries;
+  blockedActors: typeof blockedActors;
 };

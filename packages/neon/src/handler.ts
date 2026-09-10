@@ -118,6 +118,8 @@ function str(value: unknown, name: string): string {
  *   POST   /items/:id/state         transition (moderator)
  *   POST   /items/:id/merge         merge (moderator)
  *   GET    /items/:id/events        audit trail
+ *   POST   /items/:id/report        flag for review (authenticated)
+ *   POST   /items/:id/review        approve/reject/spam (moderator)
  *   GET    /items/:id/comments      list comments
  *   POST   /items/:id/comments      comment (authenticated)
  *   DELETE /comments/:id            remove comment (author or moderator)
@@ -134,6 +136,10 @@ function str(value: unknown, name: string): string {
  *   DELETE /webhooks/:id            delete webhook + deliveries (moderator)
  *   POST   /webhooks/:id/rotate     rotate secret (moderator)
  *   GET    /webhooks/:id/deliveries list deliveries (moderator)
+ *   GET    /moderation?boardId       pending queue (moderator)
+ *   POST   /items/bulk/state        bulk transition ≤50 (moderator)
+ *   POST   /blocks                  block actor (moderator)
+ *   DELETE /blocks?boardId&actorId  unblock actor (moderator)
  */
 export function createRequestHandler(
   options: HandlerOptions,
@@ -212,6 +218,8 @@ export function createRequestHandler(
         "changelog",
         "lanes",
         "webhooks",
+        "moderation",
+        "blocks",
       ].includes(s),
     );
     const parts = anchor === -1 ? [] : segments.slice(anchor);
@@ -400,6 +408,92 @@ export function createRequestHandler(
         });
         return json(lane, 201);
       }
+      // GET /moderation?boardId — pending queue (moderator).
+      if (req.method === "GET" && parts[0] === "moderation") {
+        const boardId = query.get("boardId");
+        if (!boardId) return failure("boardId is required.", 400);
+        await moderator(req, boardId);
+        return json(
+          await repo.listItems({
+            boardId,
+            moderation: "pending",
+            limit: Math.min(Number(query.get("limit") ?? 50), 100),
+            cursor: query.get("cursor") ?? undefined,
+          }),
+        );
+      }
+      // POST /items/bulk/state — bulk transition (moderator). Matched before
+      // item-scoped routes so "bulk" is never treated as an item id.
+      if (
+        req.method === "POST" &&
+        parts[0] === "items" &&
+        parts[1] === "bulk" &&
+        parts[2] === "state"
+      ) {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        const moderatorId = await moderator(req, boardId);
+        const ids = Array.isArray(body.itemIds)
+          ? body.itemIds.filter((id): id is string => typeof id === "string")
+          : [];
+        // All ids must belong to the authorized board.
+        for (const id of ids) {
+          const item = await repo.findItem(id);
+          if (!item || item.boardId !== boardId) {
+            return failure("All items must exist on this board.", 400);
+          }
+        }
+        const next = str(body.state, "state");
+        if (
+          !(ITEM_STATES as readonly string[]).includes(next) ||
+          next === "merged"
+        ) {
+          return failure(`Invalid state "${next}".`, 400);
+        }
+        if (options.transitions && options.resolveRole) {
+          const role = await options.resolveRole(moderatorId, boardId);
+          for (const id of ids) {
+            const item = (await repo.findItem(id))!;
+            assertTransition({
+              current: item.state,
+              next: next as ItemState,
+              role,
+              transitions: options.transitions,
+            });
+          }
+        }
+        return json(
+          await repo.setStateMany({
+            itemIds: ids,
+            state: next as ItemState,
+            actorId: moderatorId,
+          }),
+        );
+      }
+      // POST /blocks — block actor (moderator).
+      if (req.method === "POST" && parts[0] === "blocks") {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await moderator(req, boardId);
+        await repo.blockActor({
+          boardId,
+          actorId: str(body.actorId, "actorId"),
+          reason:
+            typeof body.reason === "string" ? body.reason : undefined,
+        });
+        return json({ ok: true });
+      }
+      // DELETE /blocks?boardId&actorId — unblock (moderator).
+      if (req.method === "DELETE" && parts[0] === "blocks") {
+        const boardId = query.get("boardId");
+        const actorId = query.get("actorId");
+        if (!boardId || !actorId) {
+          return failure("boardId and actorId are required.", 400);
+        }
+        await moderator(req, boardId);
+        await repo.unblockActor({ boardId, actorId });
+        return json({ ok: true });
+      }
       // Item-scoped routes: /items/:id/...
       if (parts[0] === "items" && parts[1]) {
         const itemId = parts[1];
@@ -468,6 +562,33 @@ export function createRequestHandler(
         }
         if (parts[2] === "events" && req.method === "GET") {
           return json(await repo.listEvents({ itemId }));
+        }
+        if (parts[2] === "report" && req.method === "POST") {
+          const actorId = await actor(req);
+          const body = await readBody(req).catch(
+            (): Record<string, unknown> => ({}),
+          );
+          await repo.reportItem({
+            itemId,
+            actorId,
+            reason:
+              typeof body.reason === "string" ? body.reason : undefined,
+          });
+          return json({ ok: true });
+        }
+        if (parts[2] === "review" && req.method === "POST") {
+          const moderatorId = await moderator(req, item.boardId);
+          const body = await readBody(req);
+          const decision = str(body.decision, "decision");
+          if (!["approved", "rejected", "spam"].includes(decision)) {
+            return failure(`Invalid decision "${decision}".`, 400);
+          }
+          await repo.reviewItem({
+            itemId,
+            decision: decision as "approved" | "rejected" | "spam",
+            actorId: moderatorId,
+          });
+          return json({ ok: true });
         }
         if (parts[2] === "comments" && req.method === "GET") {
           return json(

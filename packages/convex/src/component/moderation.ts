@@ -17,7 +17,7 @@ export async function requireUnblocked(
       q.eq("boardId", boardId).eq("actorId", actorId),
     )
     .unique();
-  if (blocked) throw new Error("Actor is blocked on this board.");
+  if (blocked) throw new Error("Permission denied: actor is blocked on this board.");
 }
 
 export const report = mutation({
