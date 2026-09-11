@@ -218,6 +218,8 @@ export const deliveries = pgTable(
     nextRetryAt: bigint("next_retry_at", { mode: "number" }),
     lastError: text("last_error"),
     deliveredAt: bigint("delivered_at", { mode: "number" }),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: bigint("lease_expires_at", { mode: "number" }),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
   },
   (table) => [

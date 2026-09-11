@@ -4,6 +4,7 @@ import { strict as assert } from "node:assert";
 import { runConformanceSuite } from "./conformance.js";
 import { ITEM_STATES } from "./rules.js";
 import {
+  assertSafeWebhookUrl,
   generateWebhookSecret,
   nextRetryAt,
   secretPreview,
@@ -41,7 +42,10 @@ function createMemoryRepository(): FeedbackRepository {
   const changelog = new Map<string, ChangelogEntry>();
   const lanes = new Map<string, RoadmapLane>();
   const webhooks = new Map<string, Webhook & { secret: string }>();
-  const deliveries = new Map<string, Delivery>();
+  const deliveries = new Map<
+    string,
+    Delivery & { leaseOwner?: string; leaseExpiresAt?: number }
+  >();
   const blocked = new Map<string, Set<string>>();
   const nextId = (prefix: string) => `${prefix}_${++seq}`;
 
@@ -351,9 +355,7 @@ function createMemoryRepository(): FeedbackRepository {
         .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
     },
     async createWebhook(input: WebhookInput) {
-      if (!/^https?:\/\//.test(input.url)) {
-        throw new Error("Webhook URL must be http(s).");
-      }
+      assertSafeWebhookUrl(input.url);
       const secret = generateWebhookSecret();
       const hook: Webhook & { secret: string } = {
         id: nextId("hook"),
@@ -394,9 +396,7 @@ function createMemoryRepository(): FeedbackRepository {
       const hook = webhooks.get(input.id);
       assert.ok(hook, "webhook must exist to update");
       if (input.url !== undefined) {
-        if (!/^https?:\/\//.test(input.url)) {
-          throw new Error("Webhook URL must be http(s).");
-        }
+        assertSafeWebhookUrl(input.url);
         hook.url = input.url;
       }
       if (input.events !== undefined) hook.events = [...input.events];
@@ -432,10 +432,19 @@ function createMemoryRepository(): FeedbackRepository {
       ok: boolean;
       error?: string;
       at?: number;
+      leaseOwner?: string;
     }) {
       const delivery = deliveries.get(input.deliveryId);
-      assert.ok(delivery, "delivery must exist");      const hook = webhooks.get(delivery.webhookId);
+      assert.ok(delivery, "delivery must exist");
       const now = input.at ?? Date.now();
+      const hook = webhooks.get(delivery.webhookId);
+      if (
+        delivery.leaseOwner &&
+        (delivery.leaseExpiresAt ?? 0) > now &&
+        input.leaseOwner !== delivery.leaseOwner
+      ) {
+        throw new Error("Delivery lease held by another worker.");
+      }
       delivery.attempts += 1;
       if (input.ok) {
         delivery.status = "delivered";

@@ -42,6 +42,7 @@ export default defineSchema({
     status: v.union(v.literal("pending"), v.literal("delivered"), v.literal("failed")),
     attempts: v.number(), nextRetryAt: v.optional(v.number()),
     lastError: v.optional(v.string()), deliveredAt: v.optional(v.number()),
+    leaseOwner: v.optional(v.string()), leaseExpiresAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index("by_webhook", ["webhookId"]).index("by_status_retry", ["status", "nextRetryAt"]),
   changelogEntries: defineTable({

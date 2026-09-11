@@ -155,7 +155,7 @@ export interface FeedbackRepository {
   rotateWebhookSecret(input: { id: Id }): Promise<{ secret: string }>;
   deleteWebhook(input: { id: Id }): Promise<void>;
   listDeliveries(input: { webhookId?: Id; status?: DeliveryStatus; limit?: number }): Promise<readonly Delivery[]>;
-  recordDeliveryOutcome(input: { deliveryId: Id; ok: boolean; error?: string; at?: number }): Promise<Delivery>;
+  recordDeliveryOutcome(input: { deliveryId: Id; ok: boolean; error?: string; at?: number; leaseOwner?: string }): Promise<Delivery>;
 }
 
 export interface EmbeddingProvider {

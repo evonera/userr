@@ -212,8 +212,7 @@ describe("webhook outbox", () => {
     expect(removed.status).toBe(200);
   });
 
-  test("webhook update patches url, events, and active flag", async () => {
-    const { db, close: closeDb } = await setupDatabase();
+  test("webhook update patches url, events, and active flag", async () => {    const { db, close: closeDb } = await setupDatabase();
     close = closeDb;
     const handle = createRequestHandler({
       db,
@@ -255,5 +254,122 @@ describe("webhook outbox", () => {
       await handle(request(`/webhooks?boardId=${board.id}`, { actor: "moderator" }))
     ).json()) as { active: boolean; events: string[] }[];
     expect(listed[0]).toMatchObject({ active: false, events: ["post.merged"] });
+  });
+
+  test("slow endpoints fail fast without stalling the batch", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const { repo, board } = await boardWithItem(db);
+    await repo.createWebhook({
+      boardId: board.id,
+      url: "https://example.com/hook",
+      events: ["post.created"],
+    });
+    await repo.createItem({
+      boardId: board.id,
+      title: "Second",
+      body: "",
+      kind: "idea",
+      authorId: "alice",
+    });
+
+    const summary = await processOutbox(db, {
+      timeoutMs: 50,
+      fetchImpl: ((_url: string, _init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          // Never settles: honoring abort is what lets the timeout win.
+          (_init?.signal as AbortSignal | undefined)?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Timed out", "TimeoutError")),
+          );
+        })) as typeof fetch,
+    });
+    expect(summary.attempted).toBe(1);
+    expect(summary.delivered).toBe(0);
+  });
+
+  test("leased rows are invisible to overlapping workers", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const { repo, board } = await boardWithItem(db);
+    const { webhook } = await repo.createWebhook({
+      boardId: board.id,
+      url: "https://example.com/hook",
+      events: ["post.created"],
+    });
+    await repo.createItem({
+      boardId: board.id,
+      title: "Second",
+      body: "",
+      kind: "idea",
+      authorId: "alice",
+    });
+
+    // Simulate a worker that claimed the row and is still sending.
+    const { deliveries } = await import("../src/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(deliveries)
+      .set({ leaseOwner: "worker-a", leaseExpiresAt: Date.now() + 60_000 })
+      .where(eq(deliveries.webhookId, webhook.id));
+    const skipped = await processOutbox(db, {
+      deliver: async () => ({ ok: true }),
+    });
+    expect(skipped).toEqual({ attempted: 0, delivered: 0 });
+
+    // And a foreign owner cannot record outcomes on the live lease.
+    const pending = await repo.listDeliveries({ webhookId: webhook.id });
+    await expect(
+      repo.recordDeliveryOutcome({
+        deliveryId: pending[0].id,
+        ok: true,
+        leaseOwner: "worker-b",
+      }),
+    ).rejects.toThrow(/lease/);
+  });
+
+  test("throwing transports become failed attempts, not escapes", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const { repo, board } = await boardWithItem(db);
+    await repo.createWebhook({
+      boardId: board.id,
+      url: "https://example.com/hook",
+      events: ["post.created"],
+    });
+    await repo.createItem({
+      boardId: board.id,
+      title: "Second",
+      body: "",
+      kind: "idea",
+      authorId: "alice",
+    });
+
+    const summary = await processOutbox(db, {
+      deliver: async () => {
+        throw new Error("socket hang up");
+      },
+    });
+    expect(summary).toEqual({ attempted: 1, delivered: 0 });
+  });
+
+  test("rejects internal destination urls", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const { repo, board } = await boardWithItem(db);
+    await expect(
+      repo.createWebhook({
+        boardId: board.id,
+        url: "http://127.0.0.1:3000/hook",
+        events: ["post.created"],
+      }),
+    ).rejects.toThrow(/Invalid webhook URL/);
+    await expect(
+      repo.createWebhook({
+        boardId: board.id,
+        url: "http://169.254.169.254/meta",
+        events: ["post.created"],
+      }),
+    ).rejects.toThrow(/Invalid webhook URL/);
   });
 });

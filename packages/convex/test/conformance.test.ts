@@ -371,6 +371,7 @@ function convexRepository(t: TestInstance): FeedbackRepository {
       ok: boolean;
       error?: string;
       at?: number;
+      leaseOwner?: string;
     }) {
       void input.at;
       const deliveries = (await t.query(api.webhooks.deliveries, {
@@ -382,6 +383,7 @@ function convexRepository(t: TestInstance): FeedbackRepository {
         deliveryId: input.deliveryId as never,
         ok: input.ok,
         ...(input.error ? { error: input.error } : {}),
+        ...(input.leaseOwner ? { leaseOwner: input.leaseOwner } : {}),
       });
       const after = (
         (await t.query(api.webhooks.deliveries, { limit: 200 })) as (Delivery & {

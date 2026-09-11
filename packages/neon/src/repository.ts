@@ -4,6 +4,7 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 
 import {
+  assertSafeWebhookUrl,
   buildEnvelope,
   EMBEDDING_DIMENSIONS,
   generateWebhookSecret,
@@ -12,6 +13,7 @@ import {
   normalizeText,
   secretPreview,
   signWebhook,
+  WEBHOOK_TIMEOUT_MS,
   VOTE_MILESTONES,
   type Board,
   type BoardInput,
@@ -802,9 +804,7 @@ export function createRepository(db: Database): FeedbackRepository {
     },
 
     async createWebhook(input: WebhookInput) {
-      if (!/^https?:\/\//.test(input.url)) {
-        throw new Error("Webhook URL must be http(s).");
-      }
+      assertSafeWebhookUrl(input.url);
       const boards = await db
         .select({ id: schema.boards.id })
         .from(schema.boards)
@@ -859,9 +859,7 @@ export function createRepository(db: Database): FeedbackRepository {
         .limit(1)
         .then((rows) => rows[0]);
       if (!existing) throw new Error("Webhook not found.");
-      if (input.url !== undefined && !/^https?:\/\//.test(input.url)) {
-        throw new Error("Webhook URL must be http(s).");
-      }
+      if (input.url !== undefined) assertSafeWebhookUrl(input.url);
       await db
         .update(schema.webhooks)
         .set({
@@ -925,6 +923,7 @@ export function createRepository(db: Database): FeedbackRepository {
       ok: boolean;
       error?: string;
       at?: number;
+      leaseOwner?: string;
     }) {
       return db.transaction(async (tx) => {
         const t = tx as Database;
@@ -936,6 +935,15 @@ export function createRepository(db: Database): FeedbackRepository {
         const delivery = rows[0];
         if (!delivery) throw new Error("Delivery not found.");
         const now = input.at ?? Date.now();
+        // Leases are advisory for direct callers but binding between workers:
+        // a live lease owned by someone else rejects the outcome.
+        if (
+          delivery.leaseOwner &&
+          (delivery.leaseExpiresAt ?? 0) > now &&
+          input.leaseOwner !== delivery.leaseOwner
+        ) {
+          throw new Error("Delivery lease held by another worker.");
+        }
         const attempts = delivery.attempts + 1;
         if (input.ok) {
           const [row] = await t
@@ -1520,6 +1528,11 @@ export interface ProcessOutboxOptions {
   fetchImpl?: typeof fetch;
   limit?: number;
   now?: number;
+  /** Per-request timeout in ms (default 10s). Slow endpoints fail the
+   *  attempt instead of stalling the batch. */
+  timeoutMs?: number;
+  /** Lease duration in ms for claimed rows (default 60s). */
+  leaseMs?: number;
 }
 
 /**
@@ -1535,16 +1548,45 @@ export async function processOutbox(
 ): Promise<{ attempted: number; delivered: number }> {
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
   const now = options.now ?? Date.now();
-  const due = await db
-    .select()
-    .from(schema.deliveries)
-    .where(
-      and(
-        eq(schema.deliveries.status, "pending"),
-        sql`${schema.deliveries.nextRetryAt} <= ${now}`,
-      ),
-    )
-    .limit(limit);
+  const timeoutMs = options.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
+  const leaseMs = options.leaseMs ?? 60_000;
+  const owner = `worker-${now}-${Math.floor(Math.random() * 1e9)}`;
+  // Atomic claim: only rows without a live lease move to this worker, so
+  // overlapping workers never send the same delivery twice.
+  const due = await db.transaction(async (tx) => {
+    const candidates = await tx
+      .select({ id: schema.deliveries.id })
+      .from(schema.deliveries)
+      .where(
+        and(
+          eq(schema.deliveries.status, "pending"),
+          sql`${schema.deliveries.nextRetryAt} <= ${now}`,
+          or(
+            sql`${schema.deliveries.leaseOwner} IS NULL`,
+            sql`${schema.deliveries.leaseExpiresAt} <= ${now}`,
+          ),
+        ),
+      )
+      .limit(limit);
+    if (candidates.length === 0) return [];
+    return tx
+      .update(schema.deliveries)
+      .set({ leaseOwner: owner, leaseExpiresAt: now + leaseMs })
+      .where(
+        and(
+          eq(schema.deliveries.status, "pending"),
+          sql`${schema.deliveries.id} IN (${sql.join(
+            candidates.map((c) => c.id),
+            sql`, `,
+          )})`,
+          or(
+            sql`${schema.deliveries.leaseOwner} IS NULL`,
+            sql`${schema.deliveries.leaseExpiresAt} <= ${now}`,
+          ),
+        ),
+      )
+      .returning();
+  });
   const deliver =
     options.deliver ??
     (async ({ url, headers, body }) => {
@@ -1552,6 +1594,8 @@ export async function processOutbox(
       try {
         const res = await impl(url, {
           method: "POST",
+          redirect: "manual",
+          signal: AbortSignal.timeout(timeoutMs),
           headers,
           body,
         });
@@ -1580,6 +1624,7 @@ export async function processOutbox(
         ok: false,
         error: "webhook missing or inactive",
         at: now,
+        leaseOwner: owner,
       });
       continue;
     }
@@ -1602,21 +1647,32 @@ export async function processOutbox(
           : {},
     });
     const body = JSON.stringify(envelope);
-    const result = await deliver({
-      url: hook.url,
-      headers: {
-        "content-type": "application/json",
-        "X-Feedback-Signature": await signWebhook(hook.secret, body),
-        "X-Feedback-Event": delivery.event,
-        "X-Feedback-Delivery": delivery.id,
-      },
-      body,
-    });
+    // Transport exceptions from injected callbacks become failed outcomes —
+    // never an escaped throw that skips the batch or the retry schedule.
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await deliver({
+        url: hook.url,
+        headers: {
+          "content-type": "application/json",
+          "X-Feedback-Signature": await signWebhook(hook.secret, body),
+          "X-Feedback-Event": delivery.event,
+          "X-Feedback-Delivery": delivery.id,
+        },
+        body,
+      });
+    } catch (error) {
+      result = {
+        ok: false,
+        error: error instanceof Error ? error.message : "delivery failed",
+      };
+    }
     await repo.recordDeliveryOutcome({
       deliveryId: delivery.id,
       ok: result.ok,
       error: result.error,
       at: now,
+      leaseOwner: owner,
     });
     if (result.ok) delivered += 1;
   }

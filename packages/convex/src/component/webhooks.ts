@@ -4,12 +4,15 @@ import {
   nextRetryAt,
   secretPreview,
   signWebhook,
+  assertSafeWebhookUrl,
+  WEBHOOK_TIMEOUT_MS,
   type WebhookEventType,
 } from "@userr/core";
 import { v } from "convex/values";
 
 import {
   action,
+  internalMutation,
   internalQuery,
   mutation,
   query,
@@ -56,6 +59,8 @@ const publicDelivery = v.object({
   nextRetryAt: v.optional(v.number()),
   lastError: v.optional(v.string()),
   deliveredAt: v.optional(v.number()),
+  leaseOwner: v.optional(v.string()),
+  leaseExpiresAt: v.optional(v.number()),
   createdAt: v.number(),
 });
 
@@ -66,9 +71,7 @@ function mask(doc: Doc<"webhooks">) {
 }
 
 function checkUrl(url: string): string {
-  if (!/^https?:\/\//.test(url)) {
-    throw new Error("Webhook URL must be http(s).");
-  }
+  assertSafeWebhookUrl(url);
   return url;
 }
 
@@ -270,12 +273,23 @@ export const recordOutcome = mutation({
     deliveryId: v.id("deliveries"),
     ok: v.boolean(),
     error: v.optional(v.string()),
+    // Lease owner claiming this outcome. Enforced only when the row holds an
+    // unexpired lease: direct callers (tests, admin tools) on unleased rows
+    // are unaffected, while overlapping workers cannot record for each other.
+    leaseOwner: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const delivery = await ctx.db.get(args.deliveryId);
     if (!delivery) return null;
     const now = Date.now();
+    if (
+      delivery.leaseOwner &&
+      (delivery.leaseExpiresAt ?? 0) > now &&
+      args.leaseOwner !== delivery.leaseOwner
+    ) {
+      throw new Error("Delivery lease held by another worker.");
+    }
     const attempts = delivery.attempts + 1;
     if (args.ok) {
       await ctx.db.patch(args.deliveryId, {
@@ -325,17 +339,62 @@ export const recordOutcome = mutation({
 });
 
 /**
+ * Atomically claim due deliveries with an expiring lease. Runs inside one
+ * mutation, so overlapping workers never hold the same row.
+ */
+export const claimDue = internalMutation({
+  args: {
+    owner: v.string(),
+    leaseMs: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    now: v.optional(v.number()),
+  },
+  returns: v.array(publicDelivery),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
+    const now = args.now ?? Date.now();
+    const leaseMs = args.leaseMs ?? 60_000;
+    const due = await ctx.db
+      .query("deliveries")
+      .withIndex("by_status_retry", (q) =>
+        q.eq("status", "pending").lte("nextRetryAt", now),
+      )
+      .take(limit);
+    const claimed: Doc<"deliveries">[] = [];
+    for (const delivery of due) {
+      if (
+        delivery.leaseOwner &&
+        (delivery.leaseExpiresAt ?? 0) > now &&
+        delivery.leaseOwner !== args.owner
+      ) {
+        continue;
+      }
+      await ctx.db.patch(delivery._id, {
+        leaseOwner: args.owner,
+        leaseExpiresAt: now + leaseMs,
+      });
+      claimed.push({ ...delivery, leaseOwner: args.owner, leaseExpiresAt: now + leaseMs });
+    }
+    return claimed;
+  },
+});
+
+/**
  * Cron/action deliverer: claim due deliveries, POST each envelope with its
  * HMAC signature, and record the outcome. At most one cron run executes at a
- * time; overlapping runs skip rather than double-deliver.
+ * time; overlapping runs find nothing claimable and skip rather than
+ * double-deliver. Each request is bounded by timeoutMs (default 10s): slow
+ * endpoints fail the attempt and the batch continues.
  */
 export const deliverDue = action({
-  args: { limit: v.optional(v.number()) },
+  args: { limit: v.optional(v.number()), timeoutMs: v.optional(v.number()) },
   returns: v.object({ attempted: v.number(), delivered: v.number() }),
   handler: async (ctx, args) => {
-    const due: Doc<"deliveries">[] = await ctx.runQuery(
-      internal.webhooks.dueDeliveries,
-      { limit: args.limit },
+    const owner = `cron-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    const timeoutMs = args.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
+    const due: Doc<"deliveries">[] = await ctx.runMutation(
+      internal.webhooks.claimDue,
+      { owner, limit: args.limit },
     );
     let delivered = 0;
     for (const delivery of due) {
@@ -347,6 +406,7 @@ export const deliverDue = action({
           deliveryId: delivery._id,
           ok: false,
           error: "webhook missing or inactive",
+          leaseOwner: owner,
         });
         continue;
       }
@@ -367,6 +427,8 @@ export const deliverDue = action({
       try {
         const res = await fetch(hook.url, {
           method: "POST",
+          redirect: "manual",
+          signal: AbortSignal.timeout(timeoutMs),
           headers: {
             "content-type": "application/json",
             "X-Feedback-Signature": await signWebhook(hook.secret, body),
@@ -379,6 +441,7 @@ export const deliverDue = action({
         await ctx.runMutation(api.webhooks.recordOutcome, {
           deliveryId: delivery._id,
           ok: true,
+          leaseOwner: owner,
         });
         delivered += 1;
       } catch (error) {
@@ -386,6 +449,7 @@ export const deliverDue = action({
           deliveryId: delivery._id,
           ok: false,
           error: error instanceof Error ? error.message : "delivery failed",
+          leaseOwner: owner,
         });
       }
     }

@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 
 import {
+  assertSafeWebhookUrl,
   generateWebhookSecret,
   nextRetryAt,
   secretPreview,
@@ -43,6 +44,40 @@ describe("webhook crypto", () => {
 
   it("masks secrets to the last four chars", () => {
     assert.equal(secretPreview("abcdef1234"), "…1234");
+  });
+});
+
+describe("destination policy", () => {
+  it("allows public https endpoints", () => {
+    assert.doesNotThrow(() =>
+      assertSafeWebhookUrl("https://example.com/hook"),
+    );
+    assert.doesNotThrow(() =>
+      assertSafeWebhookUrl("https://hooks.slack.com:443/services/x"),
+    );
+  });
+
+  it("rejects loopback, private, and link-local targets", () => {
+    const evil = [
+      "http://127.0.0.1:3000/hook",
+      "http://localhost/hook",
+      "http://localhost:8080/x",
+      "http://10.0.0.5/hook",
+      "http://172.16.4.2/hook",
+      "http://192.168.1.10/hook",
+      "http://169.254.169.254/latest/meta-data/",
+      "http://metadata.google.internal/x",
+      "http://[::1]/hook",
+      "http://[fe80::1]/hook",
+      "http://0.0.0.0/hook",
+      "ftp://example.com/hook",
+      "not-a-url",
+      "https://user:pass@example.com/hook",
+      "http://myapp.local/hook",
+    ];
+    for (const url of evil) {
+      assert.throws(() => assertSafeWebhookUrl(url), /Invalid webhook URL/, url);
+    }
   });
 });
 
