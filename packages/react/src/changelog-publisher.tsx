@@ -43,8 +43,12 @@ export function ChangelogPublisher({
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
+    // Capture the form element synchronously: React nulls currentTarget once
+    // dispatch finishes, so reading it after an await would reset nothing and
+    // surface a phantom error on success.
+    const form = event.currentTarget;
     event.preventDefault();
-    const values = new FormData(event.currentTarget);
+    const values = new FormData(form);
     setBusy(true);
     setError(undefined);
     try {
@@ -54,7 +58,7 @@ export function ChangelogPublisher({
         version: String(values.get("version") ?? "").trim() || undefined,
         linkedItemIds: [...linked],
       });
-      event.currentTarget.reset();
+      form.reset();
       setLinked(new Set());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : messages.formError);

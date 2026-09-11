@@ -7,6 +7,7 @@ import {
   FeedbackProvider,
   MergeReview,
   ModerationQueue,
+  RoadmapDnd,
   TriageInbox,
   type BoardItemView,
 } from "../src/index.js";
@@ -80,7 +81,12 @@ describe("triage", () => {
         onMerge={onMerge}
       />,
     );
+    // Target keeps its own votes; the preview bounds the source transfer.
+    expect(screen.getByText("12 votes")).toBeDefined();
     await user.click(screen.getByRole("radio"));
+    expect(
+      screen.getByText(/up to 5 source votes transfer/i),
+    ).toBeDefined();
     await user.click(screen.getByRole("button", { name: /merge/i }));
     expect(onMerge).toHaveBeenCalledWith("i_1", "i_9");
   });
@@ -106,5 +112,36 @@ describe("triage", () => {
       linkedItemIds: ["i_1"],
     });
     expect(screen.getByText(/notify 42 subscribers/i)).toBeDefined();
+    // Success clears the form without an alert.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      (screen.getByLabelText(/title/i) as HTMLInputElement).value,
+    ).toBe("");
+  });
+
+  test("roadmap picks up late and changed items", () => {
+    const lanes = [{ id: "l_1", name: "Now", states: ["planned"], order: 0 }];
+    const { rerender } = renderWithProvider(
+      <RoadmapDnd lanes={lanes} itemsByLane={{}} />,
+    );
+    // Lanes arriving before items: late data still appears.
+    rerender(
+      <FeedbackProvider>
+        <RoadmapDnd lanes={lanes} itemsByLane={{ l_1: items }} />
+      </FeedbackProvider>,
+    );
+    expect(screen.getByText("Dark mode")).toBeDefined();
+    // Vote updates refresh in place.
+    rerender(
+      <FeedbackProvider>
+        <RoadmapDnd
+          lanes={lanes}
+          itemsByLane={{
+            l_1: [{ ...items[0], voteCount: 99 }, items[1]],
+          }}
+        />
+      </FeedbackProvider>,
+    );
+    expect(screen.getByText("99")).toBeDefined();
   });
 });

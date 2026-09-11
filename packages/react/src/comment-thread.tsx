@@ -35,15 +35,14 @@ function ReplyForm({
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
+    const form = event.currentTarget;
     event.preventDefault();
-    const body = String(
-      new FormData(event.currentTarget).get("body") ?? "",
-    ).trim();
+    const body = String(new FormData(form).get("body") ?? "").trim();
     if (!body) return;
     setBusy(true);
     try {
       await onReply(parentId, body);
-      event.currentTarget.reset();
+      form.reset();
       if (parentId) setOpen(false);
     } finally {
       setBusy(false);

@@ -17,9 +17,10 @@ export interface MergeReviewProps {
   onMerge?: (sourceId: string, targetId: string) => Promise<void> | void;
   className?: string;
 }
-
 /** Duplicate triage: pick the canonical target, preview the vote transfer,
- *  confirm explicitly. Never merges automatically. */
+ *  confirm explicitly. Never merges automatically. Vote counts are labeled
+ *  honestly: the target keeps its own votes; at most the source's votes move,
+ *  minus overlaps. */
 export function MergeReview({
   source,
   candidates,
@@ -82,26 +83,33 @@ export function MergeReview({
                   className="text-xs"
                   style={{ color: "var(--userr-muted)" }}
                 >
-                  {messages.mergeVotesTransfer(candidate.voteCount)}
+                  {candidate.voteCount} votes
                 </span>
               </label>
             </li>
           ))}
         </ul>
       )}
-      <div className="flex items-center gap-2">
-        <span className="text-xs" style={{ color: "var(--userr-muted)" }}>
-          {messages.mergeInto}
-        </span>
-        <button
-          onClick={() => void confirm()}
-          disabled={busy || !target}
-          className="rounded-md px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-          style={{ background: "var(--userr-accent)" }}
-        >
-          {messages.mergeConfirm}
-          {target ? ` → ${target.title}` : ""}
-        </button>
+      <div className="grid gap-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs" style={{ color: "var(--userr-muted)" }}>
+            {messages.mergeInto}
+          </span>
+          <button
+            onClick={() => void confirm()}
+            disabled={busy || !target}
+            className="rounded-md px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            style={{ background: "var(--userr-accent)" }}
+          >
+            {messages.mergeConfirm}
+            {target ? ` → ${target.title}` : ""}
+          </button>
+        </div>
+        {target && (
+          <p className="text-xs" style={{ color: "var(--userr-muted)" }}>
+            {messages.mergeVotesTransfer(source.voteCount)}
+          </p>
+        )}
       </div>
     </div>
   );

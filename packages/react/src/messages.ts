@@ -92,7 +92,8 @@ export const defaultMessages: FeedbackMessages = {
   mergeReview: "Merge duplicates",
   mergeInto: "Merge into",
   mergeConfirm: "Merge",
-  mergeVotesTransfer: (count) => `Transfers ${count} vote${count === 1 ? "" : "s"}`,
+  mergeVotesTransfer: (count) =>
+    `Up to ${count} source vote${count === 1 ? "" : "s"} transfer (excluding overlaps)`,
   publishChangelog: "Publish update",
   changelogTitleLabel: "Title",
   changelogBodyLabel: "Body (markdown)",

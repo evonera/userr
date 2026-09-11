@@ -94,16 +94,36 @@ export function RoadmapDnd({
   const sensors = useSensors(useSensor(PointerSensor));
   const [grouped, setGrouped] = useState<Record<string, BoardItemView[]>>({});
   const laneKey = lanes.map((l) => l.id).join(",");
+  // Fingerprint contents (not just membership): vote/title/state updates must
+  // refresh rows even when lane membership is unchanged.
+  const itemsKey = lanes
+    .map(
+      (l) =>
+        `${l.id}=[${(itemsByLane[l.id] ?? [])
+          .map((i) => `${i.id}:${i.voteCount}:${i.commentCount}:${i.state}:${i.title}`)
+          .join(",")}]`,
+    )
+    .join(";");
 
   useEffect(() => {
-    const next: Record<string, BoardItemView[]> = {};
-    for (const lane of lanes) {
-      next[lane.id] = [...(itemsByLane[lane.id] ?? [])];
-    }
-    setGrouped(next);
-    // Resync when lane membership changes; see props contract above.
+    setGrouped((prev) => {
+      const next: Record<string, BoardItemView[]> = {};
+      for (const lane of lanes) {
+        const incoming = itemsByLane[lane.id] ?? [];
+        const incomingById = new Map(incoming.map((i) => [i.id, i]));
+        // Keep local display order for survivors (drag reorders stick),
+        // refresh their fields from the server, append newcomers, drop gone.
+        const kept = (prev[lane.id] ?? [])
+          .filter((item) => incomingById.has(item.id))
+          .map((item) => incomingById.get(item.id)!);
+        const keptIds = new Set(kept.map((i) => i.id));
+        next[lane.id] = [...kept, ...incoming.filter((i) => !keptIds.has(i.id))];
+      }
+      return next;
+    });
+    // Reconcile when lanes OR item contents change; see contract above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [laneKey]);
+  }, [laneKey, itemsKey]);
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;

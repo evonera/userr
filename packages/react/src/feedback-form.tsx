@@ -31,8 +31,9 @@ export function FeedbackForm({
   const [error, setError] = useState<string>();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
+    const form = event.currentTarget;
     event.preventDefault();
-    const values = new FormData(event.currentTarget);
+    const values = new FormData(form);
     setBusy(true);
     setError(undefined);
     try {
@@ -41,7 +42,7 @@ export function FeedbackForm({
         body: String(values.get("body") ?? "").trim(),
         kind: String(values.get("kind")) as FeedbackKind,
       });
-      event.currentTarget.reset();
+      form.reset();
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : messages.formError,
