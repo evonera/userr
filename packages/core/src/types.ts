@@ -22,6 +22,8 @@ export interface Board {
   statusOrder: readonly ItemState[];
 }
 
+export type ModerationState = "approved" | "pending" | "rejected" | "spam";
+
 export interface FeedbackItem {
   id: Id;
   boardId: Id;
@@ -37,6 +39,7 @@ export interface FeedbackItem {
   voteCount: number;
   commentCount: number;
   mergedInto?: Id;
+  moderation: ModerationState;
   labels: readonly string[];
   context?: Record<string, string | number | boolean | null>;
 }
@@ -44,7 +47,7 @@ export interface FeedbackItem {
 export interface FeedbackEvent {
   id: Id;
   itemId: Id;
-  type: "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented";
+  type: "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented" | "flagged" | "moderated";
   actorId?: string;
   createdAt: number;
   payload: Record<string, unknown>;
@@ -128,10 +131,16 @@ export interface FeedbackRepository {
   createItem(input: ItemInput): Promise<FeedbackItem>;
   findItem(id: Id): Promise<FeedbackItem | null>;
   findCanonicalItem(id: Id): Promise<FeedbackItem | null>;
-  listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState }): Promise<CursorPage<FeedbackItem>>;
+  listItems(input: { boardId: Id; cursor?: string; limit: number; state?: ItemState; moderation?: ModerationState; includeModerated?: boolean }): Promise<CursorPage<FeedbackItem>>;
   castVote(input: { itemId: Id; actorId: string }): Promise<{ added: boolean; voteCount: number }>;
   uncastVote(input: { itemId: Id; actorId: string }): Promise<{ removed: boolean; voteCount: number }>;
   setState(input: { itemId: Id; state: ItemState; actorId: string }): Promise<void>;
+  setStateMany(input: { itemIds: readonly Id[]; state: ItemState; actorId: string }): Promise<{ updated: number }>;
+  reportItem(input: { itemId: Id; actorId: string; reason?: string }): Promise<void>;
+  reviewItem(input: { itemId: Id; decision: Exclude<ModerationState, "pending">; actorId: string }): Promise<void>;
+  blockActor(input: { boardId: Id; actorId: string; reason?: string }): Promise<void>;
+  unblockActor(input: { boardId: Id; actorId: string }): Promise<void>;
+  isBlocked(input: { boardId: Id; actorId: string }): Promise<boolean>;
   merge(input: MergePlan): Promise<void>;
   appendEvent(event: Omit<FeedbackEvent, "id">): Promise<void>;
   listEvents(input: { itemId: Id }): Promise<readonly FeedbackEvent[]>;
@@ -139,6 +148,14 @@ export interface FeedbackRepository {
   listChangelog(input: { boardId: Id; cursor?: string; limit: number }): Promise<CursorPage<ChangelogEntry>>;
   saveLane(input: LaneInput): Promise<RoadmapLane>;
   listLanes(input: { boardId: Id }): Promise<readonly RoadmapLane[]>;
+  createWebhook(input: WebhookInput): Promise<{ webhook: Webhook; secret: string }>;
+  listWebhooks(input: { boardId: Id }): Promise<readonly Webhook[]>;
+  getWebhook(input: { id: Id }): Promise<Webhook | null>;
+  updateWebhook(input: { id: Id; url?: string; events?: readonly WebhookEventType[]; active?: boolean }): Promise<void>;
+  rotateWebhookSecret(input: { id: Id }): Promise<{ secret: string }>;
+  deleteWebhook(input: { id: Id }): Promise<void>;
+  listDeliveries(input: { webhookId?: Id; status?: DeliveryStatus; limit?: number }): Promise<readonly Delivery[]>;
+  recordDeliveryOutcome(input: { deliveryId: Id; ok: boolean; error?: string; at?: number; leaseOwner?: string }): Promise<Delivery>;
 }
 
 export interface EmbeddingProvider {
@@ -170,4 +187,54 @@ export interface MergePlan {
   actorId: string;
   mergedAt: number;
   reason?: string;
+}
+
+export type WebhookEventType =
+  | "post.created"
+  | "post.status_changed"
+  | "post.merged"
+  | "comment.created"
+  | "vote.milestone"
+  | "changelog.published";
+
+export interface Webhook {
+  id: Id;
+  boardId: Id;
+  url: string;
+  /** Last 4 chars only — the full secret is returned once at creation/rotation. */
+  secretPreview: string;
+  events: readonly WebhookEventType[];
+  active: boolean;
+  failureCount: number;
+  lastError?: string;
+  lastTriggeredAt?: number;
+}
+
+export interface WebhookInput {
+  boardId: Id;
+  url: string;
+  events: readonly WebhookEventType[];
+}
+
+export type DeliveryStatus = "pending" | "delivered" | "failed";
+
+export interface Delivery {
+  id: Id;
+  webhookId: Id;
+  event: WebhookEventType;
+  payload: Record<string, unknown>;
+  status: DeliveryStatus;
+  attempts: number;
+  nextRetryAt?: number;
+  lastError?: string;
+  deliveredAt?: number;
+}
+
+export interface WebhookEnvelope {
+  /** Delivery id — the idempotency key. */
+  id: Id;
+  type: WebhookEventType;
+  occurredAt: number;
+  board: { id: Id; slug: string; name: string };
+  data: Record<string, unknown>;
 }

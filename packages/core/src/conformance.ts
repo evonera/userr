@@ -290,4 +290,155 @@ export async function runConformanceSuite(
     lanes.map((l) => l.name),
     ["Up next", "Now"],
   );
+
+  // 13. Webhook lifecycle: secret returned once, masked afterwards.
+  const { webhook, secret } = await repo.createWebhook({
+    boardId: board.id,
+    url: "https://example.com/hook",
+    events: ["post.created", "post.status_changed"],
+  });
+  assert.equal(secret.length, 64);
+  assert.ok(webhook.secretPreview.endsWith(secret.slice(-4)));
+  assert.ok(
+    !("secret" in webhook),
+    "full secret must never appear on the stored object",
+  );
+  await repo.updateWebhook({ id: webhook.id, active: false });
+  const { secret: rotated } = await repo.rotateWebhookSecret({
+    id: webhook.id,
+  });
+  assert.notEqual(rotated, secret);
+  await repo.updateWebhook({ id: webhook.id, active: true });
+  assert.equal((await repo.listWebhooks({ boardId: board.id })).length, 1);
+  await repo.deleteWebhook({ id: webhook.id });
+  assert.equal((await repo.listWebhooks({ boardId: board.id })).length, 0);
+
+  // 14. Deliveries: item creation enqueues post.created; vote milestones fan
+  // out; outcomes drive retries and eventual failing state.
+  const { webhook: live } = await repo.createWebhook({
+    boardId: board.id,
+    url: "https://example.com/hook",
+    events: ["post.created", "vote.milestone", "post.status_changed"],
+  });
+  const announced = await repo.createItem({
+    boardId: board.id,
+    title: "Announced",
+    body: "Watch for deliveries.",
+    kind: "idea",
+    authorId: "alice",
+  });
+  const created = await repo.listDeliveries({ webhookId: live.id });
+  assert.ok(
+    created.some(
+      (d) => d.event === "post.created" && d.status === "pending",
+    ),
+    "post.created must enqueue a pending delivery",
+  );
+  const createdDelivery = created.find((d) => d.event === "post.created")!;
+  const done = await repo.recordDeliveryOutcome({
+    deliveryId: createdDelivery.id,
+    ok: true,
+  });
+  assert.equal(done.status, "delivered");
+
+  for (let i = 0; i < 10; i++) {
+    await repo.castVote({ itemId: announced.id, actorId: `voter-${i}` });
+  }
+  const milestones = await repo.listDeliveries({ webhookId: live.id });
+  assert.ok(
+    milestones.some(
+      (d) => d.event === "vote.milestone" && d.status === "pending",
+    ),
+    "reaching 10 votes must enqueue a milestone delivery",
+  );
+
+  const failing = milestones.find((d) => d.event === "vote.milestone")!;
+  let last = failing;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    last = await repo.recordDeliveryOutcome({
+      deliveryId: failing.id,
+      ok: false,
+      error: "connection refused",
+    });
+  }
+  assert.equal(last.status, "failed");
+  assert.ok((last.attempts ?? 0) >= 6, "exhausted schedule stops retrying");
+
+  // 15. Moderation: reports queue, reviews decide, blocks stick, bulk applies.
+  await repo.reportItem({
+    itemId: target.id,
+    actorId: "alice",
+    reason: "looks like spam",
+  });
+  const queued = await repo.listItems({
+    boardId: board.id,
+    limit: 10,
+    moderation: "pending",
+  });
+  assert.ok(queued.items.some((item) => item.id === target.id));
+  // Public (unfiltered) reads hide pending items until reviewed.
+  const pub = await repo.listItems({ boardId: board.id, limit: 20 });
+  assert.ok(!pub.items.some((item) => item.id === target.id));
+  await repo.reviewItem({
+    itemId: target.id,
+    decision: "approved",
+    actorId: "moderator",
+  });
+  assert.equal((await repo.findItem(target.id))?.moderation, "approved");
+
+  const bulk = await repo.setStateMany({
+    itemIds: [spare.id, announced.id],
+    state: "open",
+    actorId: "moderator",
+  });
+  assert.equal(bulk.updated, 2);
+  assert.equal((await repo.findItem(spare.id))?.state, "open");
+  await assert.rejects(
+    repo.setStateMany({
+      itemIds: [spare.id, "item_missing"],
+      state: "planned",
+      actorId: "moderator",
+    }),
+  );
+  assert.equal(
+    (await repo.findItem(spare.id))?.state,
+    "open",
+    "bulk writes must be all-or-nothing",
+  );
+  // Duplicate ids collapse: one transition, one audit event, one notification.
+  const dup = await repo.setStateMany({
+    itemIds: [spare.id, spare.id],
+    state: "planned",
+    actorId: "moderator",
+  });
+  assert.equal(dup.updated, 1);
+  const spareChanges = (await repo.listEvents({ itemId: spare.id })).filter(
+    (event) => event.type === "state_changed",
+  );
+  assert.equal(spareChanges.length, 2);
+
+  await repo.blockActor({
+    boardId: board.id,
+    actorId: "alice",
+    reason: "spam",
+  });
+  assert.equal(
+    await repo.isBlocked({ boardId: board.id, actorId: "alice" }),
+    true,
+  );
+  await assert.rejects(
+    repo.createItem({
+      boardId: board.id,
+      title: "Blocked attempt",
+      body: "Should not persist.",
+      kind: "idea",
+      authorId: "alice",
+    }),
+  );
+  await assert.rejects(repo.castVote({ itemId: spare.id, actorId: "alice" }));
+  await repo.unblockActor({ boardId: board.id, actorId: "alice" });
+  assert.equal(
+    await repo.isBlocked({ boardId: board.id, actorId: "alice" }),
+    false,
+  );
 }

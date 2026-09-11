@@ -65,6 +65,7 @@ export const items = pgTable(
     commentCount: integer("comment_count").notNull().default(0),
     labels: jsonb("labels").$type<string[]>().notNull().default([]),
     mergedInto: text("merged_into"),
+    moderation: text("moderation").notNull().default("approved"),
     context: jsonb("context").$type<
       Record<string, string | number | boolean | null>
     >(),
@@ -80,8 +81,20 @@ export const items = pgTable(
   ],
 );
 
-export const votes = pgTable(
-  "votes",
+export const blockedActors = pgTable(
+  "blocked_actors",
+  {
+    boardId: text("board_id")
+      .notNull()
+      .references(() => boards.id),
+    actorId: text("actor_id").notNull(),
+    reason: text("reason"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.boardId, table.actorId] })],
+);
+
+export const votes = pgTable(  "votes",
   {
     itemId: text("item_id")
       .notNull()
@@ -172,6 +185,49 @@ export const roadmapLanes = pgTable(
   (table) => [index("lanes_board_order_idx").on(table.boardId, table.order)],
 );
 
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: text("id").primaryKey(),
+    boardId: text("board_id")
+      .notNull()
+      .references(() => boards.id),
+    url: text("url").notNull(),
+    secret: text("secret").notNull(),
+    events: jsonb("events").$type<string[]>().notNull(),
+    active: boolean("active").notNull().default(true),
+    failureCount: integer("failure_count").notNull().default(0),
+    lastError: text("last_error"),
+    lastTriggeredAt: bigint("last_triggered_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [index("webhooks_board_idx").on(table.boardId)],
+);
+
+export const deliveries = pgTable(
+  "deliveries",
+  {
+    id: text("id").primaryKey(),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    status: text("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextRetryAt: bigint("next_retry_at", { mode: "number" }),
+    lastError: text("last_error"),
+    deliveredAt: bigint("delivered_at", { mode: "number" }),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: bigint("lease_expires_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("deliveries_webhook_idx").on(table.webhookId),
+    index("deliveries_status_retry_idx").on(table.status, table.nextRetryAt),
+  ],
+);
+
 export type Schema = {
   boards: typeof boards;
   items: typeof items;
@@ -181,4 +237,7 @@ export type Schema = {
   subscriptions: typeof subscriptions;
   changelogEntries: typeof changelogEntries;
   roadmapLanes: typeof roadmapLanes;
+  webhooks: typeof webhooks;
+  deliveries: typeof deliveries;
+  blockedActors: typeof blockedActors;
 };

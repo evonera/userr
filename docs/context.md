@@ -60,8 +60,26 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Audit fix branch in review: `fix/audit-round-1`. Next: review, merge, then
-Phase 4 (triage and closed loop — webhook outbox first).
+Phase 4 is open as a PR (unmerged): `phase-4-triage`. Next: review, merge,
+then Phase 5 (widget and capture).
+
+## Completed (Phase 4 branch, in review)
+
+- Outbox: core signer (Web Crypto, constant-time verify), retry schedule,
+  envelope builder, vote milestones; suite steps 13–14 on all adapters.
+  Convex: tables, transactional enqueue in 6 mutations, cron deliverer,
+  admin CRUD, secret-once discipline. Neon: tables + migration 0003,
+  `processOutbox` worker helper, webhook admin routes.
+- Moderation: `moderationState` + `blockedActors` both backends;
+  report/review/block/unblock, bulk ≤50 all-or-nothing, queue filter;
+  suite step 15 on all adapters. Blocked writes rejected (403 via
+  "Permission denied" mapping).
+- React triage: inbox + shortcuts (fixed 2 genuine bugs: focus policy,
+  stale-closure handlers), moderation queue, merge review, DnD roadmap,
+  changelog publisher; REST client webhook/moderation methods.
+- CLI: admin pages + Resend scaffold (`lib/userr-email.ts`, keys host-owned).
+- Full repo green: 9 core + 53 convex (+1 skip) + 16 neon + 17 react + 12 CLI,
+  typecheck clean.
 
 ## Completed (audit-round-1 branch, in review)
 

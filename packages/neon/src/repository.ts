@@ -4,14 +4,23 @@ import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 
 import {
+  assertSafeWebhookUrl,
+  buildEnvelope,
   EMBEDDING_DIMENSIONS,
+  generateWebhookSecret,
   ITEM_STATES,
+  nextRetryAt,
   normalizeText,
+  secretPreview,
+  signWebhook,
+  WEBHOOK_TIMEOUT_MS,
+  VOTE_MILESTONES,
   type Board,
   type BoardInput,
   type ChangelogEntry,
   type ChangelogInput,
   type CursorPage,
+  type Delivery,
   type FeedbackEvent,
   type FeedbackItem,
   type FeedbackRepository,
@@ -19,7 +28,11 @@ import {
   type ItemState,
   type LaneInput,
   type MergePlan,
+  type ModerationState,
   type RoadmapLane,
+  type Webhook,
+  type WebhookEventType,
+  type WebhookInput,
 } from "@userr/core";
 
 import * as schema from "./schema.js";
@@ -63,6 +76,7 @@ function toItem(row: typeof schema.items.$inferSelect): FeedbackItem {
     voteCount: row.voteCount,
     commentCount: row.commentCount,
     mergedInto: row.mergedInto ?? undefined,
+    moderation: row.moderation as FeedbackItem["moderation"],
     labels: row.labels,
     context:
       (row.context as FeedbackItem["context"]) ?? undefined,
@@ -106,6 +120,66 @@ function toLane(row: typeof schema.roadmapLanes.$inferSelect): RoadmapLane {
   };
 }
 
+function maskWebhook(row: typeof schema.webhooks.$inferSelect): Webhook {
+  return {
+    id: row.id,
+    boardId: row.boardId,
+    url: row.url,
+    secretPreview: secretPreview(row.secret),
+    events: row.events as Webhook["events"],
+    active: row.active,
+    failureCount: row.failureCount,
+    lastError: row.lastError ?? undefined,
+    lastTriggeredAt: row.lastTriggeredAt ?? undefined,
+  };
+}
+
+function toDelivery(row: typeof schema.deliveries.$inferSelect): Delivery {
+  return {
+    id: row.id,
+    webhookId: row.webhookId,
+    event: row.event as Delivery["event"],
+    payload: row.payload,
+    status: row.status as Delivery["status"],
+    attempts: row.attempts,
+    nextRetryAt: row.nextRetryAt ?? undefined,
+    lastError: row.lastError ?? undefined,
+    deliveredAt: row.deliveredAt ?? undefined,
+  };
+}
+
+/** Fan out to active webhooks subscribed to the event. Called inside the
+ *  originating transaction so rows and outbox entries commit atomically. */
+async function enqueueEvent(
+  tx: Database,
+  boardId: string,
+  type: WebhookEventType,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const now = Date.now();
+  const hooks = await tx
+    .select()
+    .from(schema.webhooks)
+    .where(eq(schema.webhooks.boardId, boardId));
+  for (const hook of hooks) {
+    if (!hook.active || !hook.events.includes(type)) continue;
+    await tx.insert(schema.deliveries).values({
+      id: newId("dlv"),
+      webhookId: hook.id,
+      event: type,
+      payload,
+      status: "pending",
+      attempts: 0,
+      nextRetryAt: now,
+      createdAt: now,
+    });
+    await tx
+      .update(schema.webhooks)
+      .set({ lastTriggeredAt: now })
+      .where(eq(schema.webhooks.id, hook.id));
+  }
+}
+
 async function requireItem(
   db: Database,
   itemId: string,
@@ -118,6 +192,24 @@ async function requireItem(
   const item = rows[0];
   if (!item) throw new Error("Feedback item not found.");
   return item;
+}
+
+async function requireUnblocked(
+  db: Database,
+  boardId: string,
+  actorId: string,
+): Promise<void> {
+  const rows = await db
+    .select({ boardId: schema.blockedActors.boardId })
+    .from(schema.blockedActors)
+    .where(
+      and(
+        eq(schema.blockedActors.boardId, boardId),
+        eq(schema.blockedActors.actorId, actorId),
+      ),
+    )
+    .limit(1);
+  if (rows[0]) throw new Error("Permission denied: actor is blocked on this board.");
 }
 
 export async function getBoard(
@@ -198,20 +290,22 @@ export function createRepository(db: Database): FeedbackRepository {
       const title = input.title.trim();
       if (title.length === 0) throw new Error("Title is required.");
       return db.transaction(async (tx) => {
-        const board = await tx
+        const t = tx as Database;
+        const board = await t
           .select()
           .from(schema.boards)
           .where(eq(schema.boards.id, input.boardId))
           .limit(1)
           .then((rows) => rows[0]);
         if (!board) throw new Error("Board not found.");
+        await requireUnblocked(t, input.boardId, input.authorId);
         if (!board.allowedKinds.includes(input.kind)) {
           throw new Error(`Kind "${input.kind}" is not allowed on this board.`);
         }
         const id = newId("item");
         const publicId = id.slice(-8).toUpperCase();
         const now = Date.now();
-        const [row] = await tx
+        const [row] = await t
           .insert(schema.items)
           .values({
             id,
@@ -235,13 +329,17 @@ export function createRepository(db: Database): FeedbackRepository {
           })
           .returning();
         if (!row) throw new Error("Item creation failed.");
-        await tx.insert(schema.events).values({
+        await t.insert(schema.events).values({
           id: newId("evt"),
           itemId: id,
           type: "created",
           actorId: input.authorId,
           payload: {},
           createdAt: now,
+        });
+        await enqueueEvent(t, input.boardId, "post.created", {
+          itemId: id,
+          title,
         });
         return toItem(row);
       });
@@ -267,9 +365,18 @@ export function createRepository(db: Database): FeedbackRepository {
       cursor?: string;
       limit: number;
       state?: ItemState;
+      moderation?: ModerationState;
+      // Public reads hide rejected/spam/pending by default; admin surfaces
+      // pass includeModerated (or an explicit moderation filter) instead.
+      includeModerated?: boolean;
     }): Promise<CursorPage<FeedbackItem>> {
       const conditions = [eq(schema.items.boardId, input.boardId)];
       if (input.state) conditions.push(eq(schema.items.state, input.state));
+      if (input.moderation) {
+        conditions.push(eq(schema.items.moderation, input.moderation));
+      } else if (!input.includeModerated) {
+        conditions.push(eq(schema.items.moderation, "approved"));
+      }
       if (input.cursor) {
         const decoded = JSON.parse(
           Buffer.from(input.cursor, "base64url").toString("utf8"),
@@ -307,6 +414,10 @@ export function createRepository(db: Database): FeedbackRepository {
       return db.transaction(async (tx) => {
         const item = await requireItem(tx as Database, input.itemId);
         if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+        if (item.moderation === "rejected" || item.moderation === "spam") {
+          throw new Error("Feedback item is unavailable.");
+        }
+        await requireUnblocked(tx as Database, item.boardId, input.actorId);
         const inserted = await tx
           .insert(schema.votes)
           .values({
@@ -337,7 +448,14 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: {},
           createdAt: Date.now(),
         });
-        return { added: true, voteCount: updated?.voteCount ?? item.voteCount + 1 };
+        const count = updated?.voteCount ?? item.voteCount + 1;
+        if (VOTE_MILESTONES.includes(count)) {
+          await enqueueEvent(tx as Database, item.boardId, "vote.milestone", {
+            itemId: input.itemId,
+            voteCount: count,
+          });
+        }
+        return { added: true, voteCount: count };
       });
     },
 
@@ -411,6 +529,11 @@ export function createRepository(db: Database): FeedbackRepository {
           actorId: input.actorId,
           payload: { from: item.state, to: input.state },
           createdAt: now,
+        });
+        await enqueueEvent(t, item.boardId, "post.status_changed", {
+          itemId: input.itemId,
+          from: item.state,
+          to: input.state,
         });
       });
     },
@@ -506,6 +629,10 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: { targetId: plan.targetId, reason: plan.reason },
           createdAt: now,
         });
+        await enqueueEvent(t, source.boardId, "post.merged", {
+          sourceId: plan.sourceId,
+          targetId: plan.targetId,
+        });
       });
     },
 
@@ -536,42 +663,49 @@ export function createRepository(db: Database): FeedbackRepository {
     ): Promise<ChangelogEntry> {
       const title = input.title.trim();
       if (title.length === 0) throw new Error("Title is required.");
-      const boards = await db
-        .select({ id: schema.boards.id })
-        .from(schema.boards)
-        .where(eq(schema.boards.id, input.boardId))
-        .limit(1);
-      if (!boards[0]) throw new Error("Board not found.");
-      // Linked items must exist on this board: no dangling or cross-board refs.
-      for (const itemId of input.linkedItemIds) {
-        const rows = await db
-          .select({ boardId: schema.items.boardId })
-          .from(schema.items)
-          .where(eq(schema.items.id, itemId))
+      return db.transaction(async (tx) => {
+        const t = tx as Database;
+        const boards = await t
+          .select({ id: schema.boards.id })
+          .from(schema.boards)
+          .where(eq(schema.boards.id, input.boardId))
           .limit(1);
-        const item = rows[0];
-        if (!item || item.boardId !== input.boardId) {
-          throw new Error("Linked items must exist on this board.");
+        if (!boards[0]) throw new Error("Board not found.");
+        // Linked items must exist on this board: no dangling or cross-board refs.
+        for (const itemId of input.linkedItemIds) {
+          const rows = await t
+            .select({ boardId: schema.items.boardId })
+            .from(schema.items)
+            .where(eq(schema.items.id, itemId))
+            .limit(1);
+          const item = rows[0];
+          if (!item || item.boardId !== input.boardId) {
+            throw new Error("Linked items must exist on this board.");
+          }
         }
-      }
-      const id = newId("entry");
-      const now = Date.now();
-      const [row] = await db
-        .insert(schema.changelogEntries)
-        .values({
-          id,
-          boardId: input.boardId,
+        const id = newId("entry");
+        const now = Date.now();
+        const [row] = await t
+          .insert(schema.changelogEntries)
+          .values({
+            id,
+            boardId: input.boardId,
+            title,
+            slug: `${slugify(title, id.slice(-8).toUpperCase())}`,
+            body: input.body,
+            version: input.version,
+            linkedItemIds: [...input.linkedItemIds],
+            publishedAt: input.publishedAt,
+            createdAt: now,
+          })
+          .returning();
+        if (!row) throw new Error("Changelog entry creation failed.");
+        await enqueueEvent(t, input.boardId, "changelog.published", {
+          entryId: id,
           title,
-          slug: `${slugify(title, id.slice(-8).toUpperCase())}`,
-          body: input.body,
-          version: input.version,
-          linkedItemIds: [...input.linkedItemIds],
-          publishedAt: input.publishedAt,
-          createdAt: now,
-        })
-        .returning();
-      if (!row) throw new Error("Changelog entry creation failed.");
-      return toChangelogEntry(row);
+        });
+        return toChangelogEntry(row);
+      });
     },
 
     async listChangelog(input: {
@@ -668,6 +802,360 @@ export function createRepository(db: Database): FeedbackRepository {
         .orderBy(asc(schema.roadmapLanes.order), asc(schema.roadmapLanes.id));
       return rows.map(toLane);
     },
+
+    async createWebhook(input: WebhookInput) {
+      assertSafeWebhookUrl(input.url);
+      const boards = await db
+        .select({ id: schema.boards.id })
+        .from(schema.boards)
+        .where(eq(schema.boards.id, input.boardId))
+        .limit(1);
+      if (!boards[0]) throw new Error("Board not found.");
+      const secret = generateWebhookSecret();
+      const [row] = await db
+        .insert(schema.webhooks)
+        .values({
+          id: newId("hook"),
+          boardId: input.boardId,
+          url: input.url,
+          secret,
+          events: [...input.events],
+          active: true,
+          failureCount: 0,
+          createdAt: Date.now(),
+        })
+        .returning();
+      if (!row) throw new Error("Webhook creation failed.");
+      return { webhook: maskWebhook(row), secret };
+    },
+
+    async listWebhooks(input: { boardId: string }) {
+      const rows = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.boardId, input.boardId));
+      return rows.map(maskWebhook);
+    },
+
+    async getWebhook(input: { id: string }): Promise<Webhook | null> {
+      const rows = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .limit(1);
+      return rows[0] ? maskWebhook(rows[0]) : null;
+    },
+
+    async updateWebhook(input: {
+      id: string;
+      url?: string;
+      events?: readonly WebhookEventType[];
+      active?: boolean;
+    }): Promise<void> {
+      const existing = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .limit(1)
+        .then((rows) => rows[0]);
+      if (!existing) throw new Error("Webhook not found.");
+      if (input.url !== undefined) assertSafeWebhookUrl(input.url);
+      await db
+        .update(schema.webhooks)
+        .set({
+          ...(input.url !== undefined ? { url: input.url } : {}),
+          ...(input.events !== undefined ? { events: [...input.events] } : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
+        })
+        .where(eq(schema.webhooks.id, input.id));
+    },
+
+    async rotateWebhookSecret(input: { id: string }) {
+      const existing = await db
+        .select()
+        .from(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .limit(1)
+        .then((rows) => rows[0]);
+      if (!existing) throw new Error("Webhook not found.");
+      const secret = generateWebhookSecret();
+      await db
+        .update(schema.webhooks)
+        .set({ secret, failureCount: 0 })
+        .where(eq(schema.webhooks.id, input.id));
+      return { secret };
+    },
+
+    async deleteWebhook(input: { id: string }): Promise<void> {
+      const deleted = await db
+        .delete(schema.webhooks)
+        .where(eq(schema.webhooks.id, input.id))
+        .returning({ id: schema.webhooks.id });
+      if (deleted.length === 0) throw new Error("Webhook not found.");
+      await db
+        .delete(schema.deliveries)
+        .where(eq(schema.deliveries.webhookId, input.id));
+    },
+
+    async listDeliveries(input: {
+      webhookId?: string;
+      status?: Delivery["status"];
+      limit?: number;
+    }) {
+      const conditions = [];
+      if (input.webhookId) {
+        conditions.push(eq(schema.deliveries.webhookId, input.webhookId));
+      }
+      if (input.status) {
+        conditions.push(eq(schema.deliveries.status, input.status));
+      }
+      const rows = await db
+        .select()
+        .from(schema.deliveries)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(desc(schema.deliveries.createdAt))
+        .limit(Math.min(Math.max(input.limit ?? 50, 1), 200));
+      return rows.map(toDelivery);
+    },
+
+    async recordDeliveryOutcome(input: {
+      deliveryId: string;
+      ok: boolean;
+      error?: string;
+      at?: number;
+      leaseOwner?: string;
+    }) {
+      return db.transaction(async (tx) => {
+        const t = tx as Database;
+        const rows = await t
+          .select()
+          .from(schema.deliveries)
+          .where(eq(schema.deliveries.id, input.deliveryId))
+          .limit(1);
+        const delivery = rows[0];
+        if (!delivery) throw new Error("Delivery not found.");
+        const now = input.at ?? Date.now();
+        // Leases are advisory for direct callers but binding between workers:
+        // a live lease owned by someone else rejects the outcome.
+        if (
+          delivery.leaseOwner &&
+          (delivery.leaseExpiresAt ?? 0) > now &&
+          input.leaseOwner !== delivery.leaseOwner
+        ) {
+          throw new Error("Delivery lease held by another worker.");
+        }
+        const attempts = delivery.attempts + 1;
+        if (input.ok) {
+          const [row] = await t
+            .update(schema.deliveries)
+            .set({
+              status: "delivered",
+              attempts,
+              deliveredAt: now,
+              lastError: null,
+            })
+            .where(eq(schema.deliveries.id, input.deliveryId))
+            .returning();
+          await t
+            .update(schema.webhooks)
+            .set({ failureCount: 0, lastTriggeredAt: now })
+            .where(eq(schema.webhooks.id, delivery.webhookId));
+          return toDelivery(row ?? { ...delivery, status: "delivered", attempts });
+        }
+        const retryAt = nextRetryAt(attempts, now);
+        if (retryAt === null) {
+          const [row] = await t
+            .update(schema.deliveries)
+            .set({
+              status: "failed",
+              attempts,
+              nextRetryAt: null,
+              lastError: input.error ?? "delivery failed",
+            })
+            .where(eq(schema.deliveries.id, input.deliveryId))
+            .returning();
+          await t
+            .update(schema.webhooks)
+            .set({
+              failureCount: sql`${schema.webhooks.failureCount} + 1`,
+              active: false,
+              lastError: input.error ?? "delivery failed",
+            })
+            .where(eq(schema.webhooks.id, delivery.webhookId));
+          return toDelivery(row ?? { ...delivery, status: "failed", attempts });
+        }
+        const [row] = await t
+          .update(schema.deliveries)
+          .set({
+            attempts,
+            nextRetryAt: retryAt,
+            lastError: input.error ?? "delivery failed",
+          })
+          .where(eq(schema.deliveries.id, input.deliveryId))
+          .returning();
+        await t
+          .update(schema.webhooks)
+          .set({
+            failureCount: sql`${schema.webhooks.failureCount} + 1`,
+            lastError: input.error ?? "delivery failed",
+          })
+          .where(eq(schema.webhooks.id, delivery.webhookId));
+        return toDelivery(row ?? { ...delivery, attempts });
+      });
+    },
+
+    async setStateMany(input: {
+      itemIds: readonly string[];
+      state: ItemState;
+      actorId: string;
+    }) {
+      if (!ITEM_STATES.includes(input.state)) {
+        throw new Error(`Invalid state "${input.state}".`);
+      }
+      if (input.state === "merged") {
+        throw new Error(
+          'State "merged" is set only by the merge operation, which establishes mergedInto.',
+        );
+      }
+      if (input.itemIds.length === 0) return { updated: 0 };
+      if (input.itemIds.length > 50) {
+        throw new Error("Bulk updates are limited to 50 items.");
+      }
+      // Deduplicate first: repeating an id must produce one audit event and
+      // one notification, not N.
+      const ids = [...new Set(input.itemIds)];
+      return db.transaction(async (tx) => {
+        const t = tx as Database;
+        // Validate everything before writing anything: all-or-nothing.
+        const targets = [];
+        for (const itemId of ids) {
+          const item = await requireItem(t, itemId);
+          if (item.mergedInto) {
+            throw new Error(`Item ${itemId} is merged and cannot change state.`);
+          }
+          targets.push(item);
+        }
+        const now = Date.now();
+        let updated = 0;
+        for (const item of targets) {
+          if (item.state === input.state) continue;
+          await t
+            .update(schema.items)
+            .set({ state: input.state, updatedAt: now })
+            .where(eq(schema.items.id, item.id));
+          await t.insert(schema.events).values({
+            id: newId("evt"),
+            itemId: item.id,
+            type: "state_changed",
+            actorId: input.actorId,
+            payload: { from: item.state, to: input.state },
+            createdAt: now,
+          });
+          await enqueueEvent(t, item.boardId, "post.status_changed", {
+            itemId: item.id,
+            from: item.state,
+            to: input.state,
+          });
+          updated += 1;
+        }
+        return { updated };
+      });
+    },
+
+    async reportItem(input: {
+      itemId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await requireItem(db, input.itemId);
+      const now = Date.now();
+      await db.transaction(async (tx) => {
+        const t = tx as Database;
+        await t
+          .update(schema.items)
+          .set({ moderation: "pending", updatedAt: now })
+          .where(eq(schema.items.id, input.itemId));
+        await t.insert(schema.events).values({
+          id: newId("evt"),
+          itemId: input.itemId,
+          type: "flagged",
+          actorId: input.actorId,
+          payload: input.reason ? { reason: input.reason } : {},
+          createdAt: now,
+        });
+      });
+    },
+
+    async reviewItem(input: {
+      itemId: string;
+      decision: Exclude<ModerationState, "pending">;
+      actorId: string;
+    }): Promise<void> {
+      const item = await requireItem(db, input.itemId);
+      const now = Date.now();
+      await db.transaction(async (tx) => {
+        const t = tx as Database;
+        await t
+          .update(schema.items)
+          .set({ moderation: input.decision, updatedAt: now })
+          .where(eq(schema.items.id, input.itemId));
+        await t.insert(schema.events).values({
+          id: newId("evt"),
+          itemId: input.itemId,
+          type: "moderated",
+          actorId: input.actorId,
+          payload: { from: item.moderation, to: input.decision },
+          createdAt: now,
+        });
+      });
+    },
+
+    async blockActor(input: {
+      boardId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await db
+        .insert(schema.blockedActors)
+        .values({
+          boardId: input.boardId,
+          actorId: input.actorId,
+          reason: input.reason,
+          createdAt: Date.now(),
+        })
+        .onConflictDoNothing();
+    },
+
+    async unblockActor(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<void> {
+      await db
+        .delete(schema.blockedActors)
+        .where(
+          and(
+            eq(schema.blockedActors.boardId, input.boardId),
+            eq(schema.blockedActors.actorId, input.actorId),
+          ),
+        );
+    },
+
+    async isBlocked(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<boolean> {
+      const rows = await db
+        .select({ boardId: schema.blockedActors.boardId })
+        .from(schema.blockedActors)
+        .where(
+          and(
+            eq(schema.blockedActors.boardId, input.boardId),
+            eq(schema.blockedActors.actorId, input.actorId),
+          ),
+        )
+        .limit(1);
+      return rows.length > 0;
+    },
   };
 }
 
@@ -676,7 +1164,7 @@ export function createRepository(db: Database): FeedbackRepository {
  *  No AI dependency; vector candidates are a separate call. */
 export async function findSimilar(
   db: Database,
-  input: { boardId: string; title: string; limit?: number },
+  input: { boardId: string; title: string; limit?: number; includeModerated?: boolean },
 ): Promise<{
   exact: string | null;
   similar: { id: string; title: string; voteCount: number }[];
@@ -694,7 +1182,11 @@ export async function findSimilar(
       ),
     )
     .limit(5);
-  const exactHit = exactCandidates.find((item) => !item.mergedInto);
+  const visible = (moderation: string) =>
+    input.includeModerated || moderation === "approved";
+  const exactHit = exactCandidates.find(
+    (item) => !item.mergedInto && visible(item.moderation),
+  );
   const exact = exactHit ? exactHit.id : null;
   const like = await db
     .select()
@@ -710,6 +1202,7 @@ export async function findSimilar(
   const similar = [];
   for (const candidate of like) {
     if (candidate.mergedInto) continue;
+    if (!visible(candidate.moderation)) continue;
     if (exact !== null && candidate.id === exact) continue;
     similar.push({
       id: candidate.id,
@@ -820,6 +1313,10 @@ export async function createComment(
     const t = tx as Database;
     const item = await requireItem(t, input.itemId);
     if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+    if (item.moderation === "rejected" || item.moderation === "spam") {
+      throw new Error("Feedback item is unavailable.");
+    }
+    await requireUnblocked(t, item.boardId, input.actorId);
     if (input.parentId) {
       const parents = await t
         .select()
@@ -862,6 +1359,10 @@ export async function createComment(
       actorId: input.actorId,
       payload: { commentId: row.id },
       createdAt: now,
+    });
+    await enqueueEvent(t, item.boardId, "comment.created", {
+      itemId: input.itemId,
+      commentId: row.id,
     });
     return row.id;
   });
@@ -1019,4 +1520,164 @@ export async function unsubscribe(
     )
     .returning({ itemId: schema.subscriptions.itemId });
   return deleted.length > 0;
+}
+
+export interface ProcessOutboxOptions {
+  deliver?: (input: {
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  fetchImpl?: typeof fetch;
+  limit?: number;
+  now?: number;
+  /** Per-request timeout in ms (default 10s). Slow endpoints fail the
+   *  attempt instead of stalling the batch. */
+  timeoutMs?: number;
+  /** Lease duration in ms for claimed rows (default 60s). */
+  leaseMs?: number;
+}
+
+/**
+ * Host-run outbox worker. The host schedules this (cron, interval, queue
+ * worker) with its own runtime: reads due deliveries, POSTs signed envelopes
+ * via the injected deliver function (default uses global fetch), and records
+ * outcomes with the shared retry schedule. Keeps secrets and scheduling in
+ * host infrastructure — the adapter only defines the protocol.
+ */
+export async function processOutbox(
+  db: Database,
+  options: ProcessOutboxOptions = {},
+): Promise<{ attempted: number; delivered: number }> {
+  const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+  const now = options.now ?? Date.now();
+  const timeoutMs = options.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
+  const leaseMs = options.leaseMs ?? 60_000;
+  const owner = `worker-${now}-${Math.floor(Math.random() * 1e9)}`;
+  // Atomic claim: only rows without a live lease move to this worker, so
+  // overlapping workers never send the same delivery twice.
+  const due = await db.transaction(async (tx) => {
+    const candidates = await tx
+      .select({ id: schema.deliveries.id })
+      .from(schema.deliveries)
+      .where(
+        and(
+          eq(schema.deliveries.status, "pending"),
+          sql`${schema.deliveries.nextRetryAt} <= ${now}`,
+          or(
+            sql`${schema.deliveries.leaseOwner} IS NULL`,
+            sql`${schema.deliveries.leaseExpiresAt} <= ${now}`,
+          ),
+        ),
+      )
+      .limit(limit);
+    if (candidates.length === 0) return [];
+    return tx
+      .update(schema.deliveries)
+      .set({ leaseOwner: owner, leaseExpiresAt: now + leaseMs })
+      .where(
+        and(
+          eq(schema.deliveries.status, "pending"),
+          sql`${schema.deliveries.id} IN (${sql.join(
+            candidates.map((c) => c.id),
+            sql`, `,
+          )})`,
+          or(
+            sql`${schema.deliveries.leaseOwner} IS NULL`,
+            sql`${schema.deliveries.leaseExpiresAt} <= ${now}`,
+          ),
+        ),
+      )
+      .returning();
+  });
+  const deliver =
+    options.deliver ??
+    (async ({ url, headers, body }) => {
+      const impl = options.fetchImpl ?? fetch;
+      try {
+        const res = await impl(url, {
+          method: "POST",
+          redirect: "manual",
+          signal: AbortSignal.timeout(timeoutMs),
+          headers,
+          body,
+        });
+        if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+        return { ok: true };
+      } catch (error) {
+        return {
+          ok: false,
+          error: error instanceof Error ? error.message : "delivery failed",
+        };
+      }
+    });
+
+  let delivered = 0;
+  const repo = createRepository(db);
+  for (const delivery of due) {
+    const hooks = await db
+      .select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.id, delivery.webhookId))
+      .limit(1);
+    const hook = hooks[0];
+    if (!hook || !hook.active) {
+      await repo.recordDeliveryOutcome({
+        deliveryId: delivery.id,
+        ok: false,
+        error: "webhook missing or inactive",
+        at: now,
+        leaseOwner: owner,
+      });
+      continue;
+    }
+    const boards = await db
+      .select()
+      .from(schema.boards)
+      .where(eq(schema.boards.id, hook.boardId))
+      .limit(1);
+    const board = boards[0];
+    const envelope = buildEnvelope({
+      deliveryId: delivery.id,
+      type: delivery.event as WebhookEventType,
+      occurredAt: delivery.createdAt,
+      board: board
+        ? { id: board.id, slug: board.slug, name: board.name }
+        : { id: hook.boardId, slug: "", name: "" },
+      data:
+        typeof delivery.payload === "object" && delivery.payload !== null
+          ? (delivery.payload as Record<string, unknown>)
+          : {},
+    });
+    const body = JSON.stringify(envelope);
+    // Transport exceptions from injected callbacks become failed outcomes —
+    // never an escaped throw that skips the batch or the retry schedule.
+    let result: { ok: boolean; error?: string };
+    try {
+      result = await deliver({
+        url: hook.url,
+        headers: {
+          "content-type": "application/json",
+          "X-Feedback-Signature": await signWebhook(hook.secret, body),
+          "X-Feedback-Event": delivery.event,
+          "X-Feedback-Delivery": delivery.id,
+        },
+        body,
+      });
+    } catch (error) {
+      result = {
+        ok: false,
+        error: error instanceof Error ? error.message : "delivery failed",
+      };
+    }
+    await repo.recordDeliveryOutcome({
+      deliveryId: delivery.id,
+      ok: result.ok,
+      error: result.error,
+      at: now,
+      leaseOwner: owner,
+    });
+    if (result.ok) delivered += 1;
+  }
+  return { attempted: due.length, delivered };
 }

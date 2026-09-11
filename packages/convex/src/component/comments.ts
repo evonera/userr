@@ -3,6 +3,8 @@ import { paginator } from "convex-helpers/server/pagination";
 import { v } from "convex/values";
 
 import { mutation, query } from "./_generated/server.js";
+import { enqueueEvent } from "./webhooks.js";
+import { requireUnblocked } from "./moderation.js";
 import type { MutationCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {
@@ -76,6 +78,10 @@ export const create = mutation({
     if (!item || item.mergedInto) {
       throw new Error("Feedback item is unavailable.");
     }
+    await requireUnblocked(ctx, item.boardId, args.actorId);
+    if (item.moderation === "rejected" || item.moderation === "spam") {
+      throw new Error("Feedback item is unavailable.");
+    }
     const body = checkBody(args.body);
     if (args.parentId) {
       const parent = await ctx.db.get(args.parentId);
@@ -108,6 +114,10 @@ export const create = mutation({
       actorId: args.actorId,
       payload: { commentId: id },
       createdAt: now,
+    });
+    await enqueueEvent(ctx, item.boardId, "comment.created", {
+      itemId: args.itemId,
+      commentId: id,
     });
     return id;
   },

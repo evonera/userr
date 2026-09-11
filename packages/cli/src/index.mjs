@@ -111,7 +111,59 @@ function filesForAdd({ backend, framework }) {
     files["app/api/userr/[...path]/route.ts"] = neonApiRoute();
   }
   files["app/sitemap.ts"] = sitemapFile({ backend });
+  files["app/admin/feedback/page.tsx"] = triagePage({ backend });
+  files["app/admin/feedback/moderation/page.tsx"] = moderationPage({ backend });
+  files["app/admin/feedback/changelog/new/page.tsx"] = publisherPage({ backend });
+  files["lib/userr-email.ts"] = emailHook();
   return files;
+}
+
+function triagePage({ backend }) {
+  void backend;
+  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, TriageInbox } from "@userr/react";\n\n// TODO: gate this route to moderators (middleware + resolveRole), then wire:\n// - items: unreviewed sorted by votes (Convex: api.items.list; Neon: client.listItems)\n// - onBulkState: setStateMany (Convex: api.items.setStateMany; Neon: POST /items/bulk/state)\n// - onOpen: route to your item detail view.\nexport default function TriagePage() {\n  return <FeedbackProvider><main>{/* <TriageInbox items={items} onBulkState={...} /> */}</main></FeedbackProvider>;\n}\n`;
+}
+
+function moderationPage({ backend }) {
+  void backend;
+  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, ModerationQueue, MergeReview } from "@userr/react";\n\n// TODO: gate to moderators, then wire:\n// - queue: moderation pending (Convex: api.items.list + moderation filter; Neon: GET /moderation)\n// - onReview: approve/reject/spam (Convex: api.moderation.review; Neon: POST /items/:id/review)\n// - MergeReview candidates: findSimilar per open item; confirm calls merge.\nexport default function ModerationPage() {\n  return <FeedbackProvider><main>{/* <ModerationQueue items={queue} /> */}</main></FeedbackProvider>;\n}\n`;
+}
+
+function publisherPage({ backend }) {
+  void backend;
+  return `${OWNERSHIP}import { FeedbackProvider, ChangelogPublisher } from "@userr/react";\nimport { notifySubscribers } from "@/lib/userr-email";\n\n// Server component: onPublish below is a Server Action, so RESEND_API_KEY\n// never reaches the browser. TODO: gate this route to moderators\n// (middleware), load shipped items, publish the entry, fetch subscriber\n// emails for linked items, then notify.\nasync function publishAndNotify(input: { title: string; body: string; version?: string; linkedItemIds: string[] }) {\n  "use server";\n  // 1. publish (Convex: api.changelog.publish; Neon: repo.publishChangelogEntry),\n  // 2. fetch subscriber emails for input.linkedItemIds,\n  // 3. await notifySubscribers({ postTitle: input.title, postUrl: "...", from: "...", to: "shipped", recipients: [...] });\n  void input;\n  throw new Error("Wire publishAndNotify to your backend and email list.");\n}\nexport default function ChangelogPublisherPage() {\n  return <FeedbackProvider><main><ChangelogPublisher shippedItems={[]} onPublish={publishAndNotify} /></main></FeedbackProvider>;\n}\n`;
+}
+
+function emailHook() {
+  return `${OWNERSHIP}"use server";\n// Host-owned voter notification, runnable ONLY on the server: this module
+// reads RESEND_API_KEY, which must never reach the browser. Install resend
+// (\`npm i resend\`), set RESEND_API_KEY, and call notifySubscribers from a
+// Server Action or route handler after a status change lands. Keys never
+// enter Userr. Recipients go in BCC so subscriber addresses stay private.
+import { Resend } from "resend";
+
+export interface StatusNotification {
+  postTitle: string;
+  postUrl: string;
+  from: string;
+  to: string;
+  recipients: string[];
+}
+
+export async function notifySubscribers(input: StatusNotification): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("Set RESEND_API_KEY to send voter notifications.");
+  if (input.recipients.length === 0) return;
+  const sender = "updates@example.com"; // TODO: your verified sender
+  const resend = new Resend(apiKey);
+  await resend.emails.send({
+    from: sender,
+    to: sender,
+    bcc: input.recipients,
+    subject: \`"\${input.postTitle}" moved to \${input.to}\`,
+    text: \`"\${input.postTitle}" moved from \${input.from} to \${input.to}. See what's new: \${input.postUrl}\`,
+  });
+}
+`;
 }
 
 function sitemapFile({ backend }) {
