@@ -1,3 +1,5 @@
+"use client";
+
 import { cn } from "./cn.js";
 import { useFeedbackMessages } from "./provider.js";
 

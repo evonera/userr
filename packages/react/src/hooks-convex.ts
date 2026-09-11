@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Convex-flavored hooks. Thin wrappers over `convex/react` that normalize
  * component results into backend-agnostic views (see views.ts). Import from

@@ -1,3 +1,5 @@
+"use client";
+
 import { useId, useState, type FormEvent } from "react";
 
 import { cn } from "./cn.js";
