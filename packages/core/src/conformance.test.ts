@@ -492,7 +492,8 @@ function createMemoryRepository(): FeedbackRepository {
       if (input.itemIds.length > 50) {
         throw new Error("Bulk updates are limited to 50 items.");
       }
-      const targets = input.itemIds.map((id) => {
+      const ids = [...new Set(input.itemIds)];
+      const targets = ids.map((id) => {
         const item = items.get(id);
         if (!item || item.mergedInto) {
           throw new Error(`Item ${id} is unavailable for bulk update.`);

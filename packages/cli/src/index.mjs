@@ -130,13 +130,15 @@ function moderationPage({ backend }) {
 
 function publisherPage({ backend }) {
   void backend;
-  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, ChangelogPublisher } from "@userr/react";\nimport { notifySubscribers } from "@/lib/userr-email";\n\n// TODO: gate to moderators, then wire onPublish:\n// 1. publish the entry (Convex: api.changelog.publish; Neon: POST /changelog),\n// 2. fetch subscriber emails for linked items,\n// 3. call notifySubscribers (lib/userr-email.ts) with your Resend key.\nexport default function ChangelogPublisherPage() {\n  void notifySubscribers;\n  return <FeedbackProvider><main>{/* <ChangelogPublisher shippedItems={shipped} onPublish={...} /> */}</main></FeedbackProvider>;\n}\n`;
+  return `${OWNERSHIP}import { FeedbackProvider, ChangelogPublisher } from "@userr/react";\nimport { notifySubscribers } from "@/lib/userr-email";\n\n// Server component: onPublish below is a Server Action, so RESEND_API_KEY\n// never reaches the browser. TODO: gate this route to moderators\n// (middleware), load shipped items, publish the entry, fetch subscriber\n// emails for linked items, then notify.\nasync function publishAndNotify(input: { title: string; body: string; version?: string; linkedItemIds: string[] }) {\n  "use server";\n  // 1. publish (Convex: api.changelog.publish; Neon: repo.publishChangelogEntry),\n  // 2. fetch subscriber emails for input.linkedItemIds,\n  // 3. await notifySubscribers({ postTitle: input.title, postUrl: "...", from: "...", to: "shipped", recipients: [...] });\n  void input;\n  throw new Error("Wire publishAndNotify to your backend and email list.");\n}\nexport default function ChangelogPublisherPage() {\n  return <FeedbackProvider><main><ChangelogPublisher shippedItems={[]} onPublish={publishAndNotify} /></main></FeedbackProvider>;\n}\n`;
 }
 
 function emailHook() {
-  return `${OWNERSHIP}// Host-owned voter notification hook. Install resend (\`npm i resend\`), set
-// RESEND_API_KEY, and call notifySubscribers after a status change lands
-// (from your setState wrapper or a webhook receiver). Keys never enter Userr.
+  return `${OWNERSHIP}"use server";\n// Host-owned voter notification, runnable ONLY on the server: this module
+// reads RESEND_API_KEY, which must never reach the browser. Install resend
+// (\`npm i resend\`), set RESEND_API_KEY, and call notifySubscribers from a
+// Server Action or route handler after a status change lands. Keys never
+// enter Userr. Recipients go in BCC so subscriber addresses stay private.
 import { Resend } from "resend";
 
 export interface StatusNotification {
@@ -151,10 +153,12 @@ export async function notifySubscribers(input: StatusNotification): Promise<void
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error("Set RESEND_API_KEY to send voter notifications.");
   if (input.recipients.length === 0) return;
+  const sender = "updates@example.com"; // TODO: your verified sender
   const resend = new Resend(apiKey);
   await resend.emails.send({
-    from: "updates@example.com", // TODO: your verified sender
-    to: input.recipients,
+    from: sender,
+    to: sender,
+    bcc: input.recipients,
     subject: \`"\${input.postTitle}" moved to \${input.to}\`,
     text: \`"\${input.postTitle}" moved from \${input.from} to \${input.to}. See what's new: \${input.postUrl}\`,
   });

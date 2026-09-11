@@ -277,8 +277,11 @@ export const setStateMany = mutation({
     if (args.itemIds.length > 50) {
       throw new Error("Bulk updates are limited to 50 items.");
     }
+    // Deduplicate first: repeating an id must produce one audit event and one
+    // notification, not N.
+    const ids = [...new Set(args.itemIds)];
     const items: Doc<"items">[] = [];
-    for (const itemId of args.itemIds) {
+    for (const itemId of ids) {
       const item = await requireItem(ctx, itemId);
       if (item.mergedInto) {
         throw new Error(`Item ${itemId} is merged and cannot change state.`);

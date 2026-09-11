@@ -405,6 +405,17 @@ export async function runConformanceSuite(
     "open",
     "bulk writes must be all-or-nothing",
   );
+  // Duplicate ids collapse: one transition, one audit event, one notification.
+  const dup = await repo.setStateMany({
+    itemIds: [spare.id, spare.id],
+    state: "planned",
+    actorId: "moderator",
+  });
+  assert.equal(dup.updated, 1);
+  const spareChanges = (await repo.listEvents({ itemId: spare.id })).filter(
+    (event) => event.type === "state_changed",
+  );
+  assert.equal(spareChanges.length, 2);
 
   await repo.blockActor({
     boardId: board.id,

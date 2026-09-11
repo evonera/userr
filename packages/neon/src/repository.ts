@@ -1021,11 +1021,14 @@ export function createRepository(db: Database): FeedbackRepository {
       if (input.itemIds.length > 50) {
         throw new Error("Bulk updates are limited to 50 items.");
       }
+      // Deduplicate first: repeating an id must produce one audit event and
+      // one notification, not N.
+      const ids = [...new Set(input.itemIds)];
       return db.transaction(async (tx) => {
         const t = tx as Database;
         // Validate everything before writing anything: all-or-nothing.
         const targets = [];
-        for (const itemId of input.itemIds) {
+        for (const itemId of ids) {
           const item = await requireItem(t, itemId);
           if (item.mergedInto) {
             throw new Error(`Item ${itemId} is merged and cannot change state.`);
