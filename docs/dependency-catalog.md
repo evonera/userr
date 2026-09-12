@@ -11,6 +11,9 @@
 - `convex-helpers` — `paginator` + `usePaginatedQuery` (built-in paginate does not work in components)
 - `convex-test` + `@edge-runtime/vm` — component tests
 - `openai` (optional peer) — `text-embedding-3-small` for dedup embeddings; `RESEND_API_KEY` only in host app, never component
+- `resend` (optional host dependency) — generated server-only status and
+  release-notification scaffold; the customer installs it in their app and
+  owns the API key, sender identity, recipients, and delivery policy.
 - peers: `react@^18||^19` (hooks only)
 
 ## @userr/neon (second adapter)

@@ -37,6 +37,10 @@ testable in every adapter.
 - Postgres: Drizzle plus the customer's database driver and `pgvector`.
 - Supabase: `@supabase/supabase-js` and SQL migrations/RLS policies.
 - Capture: browser-only image/annotation libraries, loaded on demand.
+- Generated email notifications: `resend` is an optional, host-installed
+  dependency used only by the CLI's server-only notification scaffold. The
+  host owns its API key, verified sender, recipient data, and delivery policy;
+  `@userr/*` packages never import it.
 
 ## Rules
 
