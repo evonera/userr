@@ -3,9 +3,11 @@
 ## Phase 4 moderation index
 
 Deploy the new component code, then have an authorized host-admin action run
-the internal `items.backfillModeration` mutation once per board with
-`{ boardId, paginationOpts: { cursor: null, numItems: 100 } }`. It is not a
-public component endpoint.
+`items.backfillModeration` once per board with
+`{ boardId, paginationOpts: { cursor: null, numItems: 100 } }`. The fixture's
+`feedback.backfillModeration` is the canonical wrapper: it calls
+`requireModerator` before delegating to the component. Do not expose the
+component mutation directly to a browser client.
 Continue with the returned `continueCursor` until `isDone` is true. This writes
 `moderation: "approved"` to feedback created before moderation existed, which
 preserves its previous public visibility while allowing the indexed public
