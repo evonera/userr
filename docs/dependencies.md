@@ -29,6 +29,10 @@ testable in every adapter.
 - React: `react`, `react-dom` (peers); UI ships no CSS — utility classes in
   `className` strings are styled by the host's Tailwind setup and degrade to
   unstyled-but-functional without it. Never import `tailwindcss` itself.
+- React roadmap: `@dnd-kit/core`, `@dnd-kit/sortable`, and
+  `@dnd-kit/utilities` are runtime dependencies because the shipped roadmap
+  surface imports their drag/drop primitives. They are MIT-licensed and are
+  intentionally isolated to `@userr/react` rather than the portable core.
 - Next.js installer: `next` only when generated routes are selected.
 - Postgres: Drizzle plus the customer's database driver and `pgvector`.
 - Supabase: `@supabase/supabase-js` and SQL migrations/RLS policies.

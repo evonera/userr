@@ -25,7 +25,10 @@
 - `framer-motion` — modals/dropdowns (UserCue toast IDs + StatusDropdown pattern)
 - `react-markdown + remark-gfm + rehype-highlight`, `dompurify` — post/changelog render
 - `tiptap (+starter-kit/link/mention/image/placeholder)` — admin + changelog editor (Fider/Quackback parity)
-- `@dnd-kit/*` — roadmap kanban DnD; `react-hot-toast` — toasts; `javascript-time-ago` or `dayjs` — timestamps
+- `@dnd-kit/core@^6.3.1`, `@dnd-kit/sortable@^10.0.0`, and
+  `@dnd-kit/utilities@^3.2.2` — MIT-licensed runtime drag/drop primitives for
+  the shipped roadmap kanban surface; `react-hot-toast` — toasts;
+  `javascript-time-ago` or `dayjs` — timestamps
 
 ## @userr/widget (vanilla IIFE — zero runtime deps by design)
 - runtime: none (BugDrop/Reflet discipline; React is peer-only for wrapper)

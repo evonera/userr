@@ -84,6 +84,35 @@ export const list = query({
 });
 
 /**
+ * Upgrade migration for component deployments created before moderation was
+ * introduced. Run repeatedly with the returned cursor until `isDone` before
+ * switching public traffic to the moderation-aware index. Legacy rows were
+ * publicly visible before the feature, so their explicit safe equivalent is
+ * `approved`.
+ */
+export const backfillModeration = mutation({
+  args: {
+    boardId: v.id("boards"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: v.object({ updated: v.number(), continueCursor: v.string(), isDone: v.boolean() }),
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("items")
+      .withIndex("by_board_state", (q) => q.eq("boardId", args.boardId))
+      .paginate(args.paginationOpts);
+    let updated = 0;
+    for (const item of result.page) {
+      if (item.moderation === undefined) {
+        await ctx.db.patch(item._id, { moderation: "approved" });
+        updated += 1;
+      }
+    }
+    return { updated, continueCursor: result.continueCursor, isDone: result.isDone };
+  },
+});
+
+/**
  * Top-voted listing. Vote counts have no dedicated index, so this collects the
  * board slice and sorts in memory. Bounded by `limit` (default 50, max 200);
  * use `list` with cursor pagination for unbounded traversal.

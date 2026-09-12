@@ -94,6 +94,15 @@ export function assertSafeWebhookAddress(address: string): void {
   }
 }
 
+/** A v1 producer must continue to fan out to pre-v1 saved subscriptions
+ * during an upgrade. Deliveries themselves always use the versioned event. */
+export function webhookSubscribesTo(
+  events: readonly string[],
+  type: WebhookEventType,
+): boolean {
+  return events.includes(type) || events.includes(type.replace(/^v1\./, ""));
+}
+
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "metadata.google.internal",

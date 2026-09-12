@@ -8,6 +8,7 @@ import {
   secretPreview,
   signWebhook,
   verifyWebhookSignature,
+  webhookSubscribesTo,
 } from "./webhooks.js";
 
 describe("webhook crypto", () => {
@@ -95,5 +96,13 @@ describe("retry schedule", () => {
     assert.equal(nextRetryAt(5, now), now + 43_200_000);
     assert.equal(nextRetryAt(6, now), null);
     assert.equal(nextRetryAt(99, now), null);
+  });
+});
+
+describe("versioned subscriptions", () => {
+  it("keeps legacy saved subscriptions receiving the matching v1 event", () => {
+    assert.equal(webhookSubscribesTo(["post.created"], "v1.post.created"), true);
+    assert.equal(webhookSubscribesTo(["v1.post.created"], "v1.post.created"), true);
+    assert.equal(webhookSubscribesTo(["post.merged"], "v1.post.created"), false);
   });
 });

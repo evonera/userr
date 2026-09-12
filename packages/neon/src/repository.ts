@@ -7,6 +7,7 @@ import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 import {
   assertSafeWebhookUrl,
   assertSafeWebhookAddress,
+  webhookSubscribesTo,
   buildEnvelope,
   EMBEDDING_DIMENSIONS,
   generateWebhookSecret,
@@ -164,7 +165,7 @@ async function enqueueEvent(
     .from(schema.webhooks)
     .where(eq(schema.webhooks.boardId, boardId));
   for (const hook of hooks) {
-    if (!hook.active || !hook.events.includes(type)) continue;
+    if (!hook.active || !webhookSubscribesTo(hook.events, type)) continue;
     await tx.insert(schema.deliveries).values({
       id: newId("dlv"),
       webhookId: hook.id,

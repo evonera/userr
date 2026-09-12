@@ -15,8 +15,8 @@ export default defineSchema({
     boardId: v.id("boards"), publicId: v.string(), slug: v.string(), title: v.string(), body: v.string(),
     normalizedTitle: v.string(), searchText: v.string(), kind: v.string(), state, authorId: v.string(),
     voteCount: v.number(), commentCount: v.number(), labels: v.array(v.string()), mergedInto: v.optional(v.id("items")),
-    // Optional so pre-moderation deployments upgrade without a backfill:
-    // reads fall back to "approved" (see toPublicItem). New writes always set it.
+    // Optional during the Phase 4 upgrade. Run `items.backfillModeration`
+    // before enabling public traffic; all new writes set it explicitly.
     moderation: v.optional(v.union(v.literal("approved"), v.literal("pending"), v.literal("rejected"), v.literal("spam"))),
     context: v.optional(v.any()), embedding: v.optional(v.array(v.float64())), embeddingState: v.union(v.literal("pending"), v.literal("ready"), v.literal("disabled")),
     createdAt: v.number(), updatedAt: v.number(),

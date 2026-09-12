@@ -5,6 +5,7 @@ import {
   secretPreview,
   signWebhook,
   assertSafeWebhookUrl,
+  webhookSubscribesTo,
   WEBHOOK_TIMEOUT_MS,
   type WebhookEventType,
 } from "@userr/core";
@@ -94,7 +95,7 @@ export async function enqueueEvent(
     .withIndex("by_board", (q) => q.eq("boardId", boardId))
     .collect();
   for (const hook of hooks) {
-    if (!hook.active || !hook.events.includes(type)) continue;
+    if (!hook.active || !webhookSubscribesTo(hook.events, type)) continue;
     await ctx.db.insert("deliveries", {
       webhookId: hook._id,
       event: type,
