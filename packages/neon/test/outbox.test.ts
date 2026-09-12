@@ -107,6 +107,27 @@ describe("webhook outbox", () => {
     expect(idle).toEqual({ attempted: 0, delivered: 0 });
   });
 
+  test("legacy event subscriptions receive their corresponding v1 delivery", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const { repo, board } = await boardWithItem(db);
+    const { webhook } = await repo.createWebhook({
+      boardId: board.id,
+      url: "https://example.com/hook",
+      events: ["v1.post.created"],
+    });
+    const { webhooks } = await import("../src/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.update(webhooks).set({ events: ["post.created"] }).where(eq(webhooks.id, webhook.id));
+
+    await repo.createItem({
+      boardId: board.id, title: "Legacy subscription", body: "", kind: "idea", authorId: "alice",
+    });
+    const deliveries = await repo.listDeliveries({ webhookId: webhook.id });
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].event).toBe("v1.post.created");
+  });
+
   test("failing deliveries exhaust the schedule and deactivate", async () => {
     const { db, close: closeDb } = await setupDatabase();
     close = closeDb;

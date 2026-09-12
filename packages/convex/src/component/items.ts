@@ -3,7 +3,7 @@ import { paginator } from "convex-helpers/server/pagination";
 import { v } from "convex/values";
 
 import { VOTE_MILESTONES } from "@userr/core";
-import { mutation, query } from "./_generated/server.js";
+import { internalMutation, mutation, query } from "./_generated/server.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 import {
@@ -90,7 +90,7 @@ export const list = query({
  * publicly visible before the feature, so their explicit safe equivalent is
  * `approved`.
  */
-export const backfillModeration = mutation({
+export const backfillModeration = internalMutation({
   args: {
     boardId: v.id("boards"),
     paginationOpts: paginationOptsValidator,
