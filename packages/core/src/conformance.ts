@@ -295,7 +295,7 @@ export async function runConformanceSuite(
   const { webhook, secret } = await repo.createWebhook({
     boardId: board.id,
     url: "https://example.com/hook",
-    events: ["post.created", "post.status_changed"],
+    events: ["v1.post.created", "v1.post.status_changed"],
   });
   assert.equal(secret.length, 64);
   assert.ok(webhook.secretPreview.endsWith(secret.slice(-4)));
@@ -313,12 +313,12 @@ export async function runConformanceSuite(
   await repo.deleteWebhook({ id: webhook.id });
   assert.equal((await repo.listWebhooks({ boardId: board.id })).length, 0);
 
-  // 14. Deliveries: item creation enqueues post.created; vote milestones fan
+  // 14. Deliveries: item creation enqueues v1.post.created; vote milestones fan
   // out; outcomes drive retries and eventual failing state.
   const { webhook: live } = await repo.createWebhook({
     boardId: board.id,
     url: "https://example.com/hook",
-    events: ["post.created", "vote.milestone", "post.status_changed"],
+    events: ["v1.post.created", "v1.vote.milestone", "v1.post.status_changed"],
   });
   const announced = await repo.createItem({
     boardId: board.id,
@@ -330,11 +330,11 @@ export async function runConformanceSuite(
   const created = await repo.listDeliveries({ webhookId: live.id });
   assert.ok(
     created.some(
-      (d) => d.event === "post.created" && d.status === "pending",
+      (d) => d.event === "v1.post.created" && d.status === "pending",
     ),
-    "post.created must enqueue a pending delivery",
+    "v1.post.created must enqueue a pending delivery",
   );
-  const createdDelivery = created.find((d) => d.event === "post.created")!;
+  const createdDelivery = created.find((d) => d.event === "v1.post.created")!;
   const done = await repo.recordDeliveryOutcome({
     deliveryId: createdDelivery.id,
     ok: true,
@@ -347,12 +347,12 @@ export async function runConformanceSuite(
   const milestones = await repo.listDeliveries({ webhookId: live.id });
   assert.ok(
     milestones.some(
-      (d) => d.event === "vote.milestone" && d.status === "pending",
+      (d) => d.event === "v1.vote.milestone" && d.status === "pending",
     ),
     "reaching 10 votes must enqueue a milestone delivery",
   );
 
-  const failing = milestones.find((d) => d.event === "vote.milestone")!;
+  const failing = milestones.find((d) => d.event === "v1.vote.milestone")!;
   let last = failing;
   for (let attempt = 0; attempt < 6; attempt++) {
     last = await repo.recordDeliveryOutcome({

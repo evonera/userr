@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
 
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq, gt, lt, or, sql } from "drizzle-orm";
 
 import {
   assertSafeWebhookUrl,
+  assertSafeWebhookAddress,
   buildEnvelope,
   EMBEDDING_DIMENSIONS,
   generateWebhookSecret,
@@ -337,7 +339,7 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: {},
           createdAt: now,
         });
-        await enqueueEvent(t, input.boardId, "post.created", {
+        await enqueueEvent(t, input.boardId, "v1.post.created", {
           itemId: id,
           title,
         });
@@ -450,7 +452,7 @@ export function createRepository(db: Database): FeedbackRepository {
         });
         const count = updated?.voteCount ?? item.voteCount + 1;
         if (VOTE_MILESTONES.includes(count)) {
-          await enqueueEvent(tx as Database, item.boardId, "vote.milestone", {
+          await enqueueEvent(tx as Database, item.boardId, "v1.vote.milestone", {
             itemId: input.itemId,
             voteCount: count,
           });
@@ -530,7 +532,7 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: { from: item.state, to: input.state },
           createdAt: now,
         });
-        await enqueueEvent(t, item.boardId, "post.status_changed", {
+        await enqueueEvent(t, item.boardId, "v1.post.status_changed", {
           itemId: input.itemId,
           from: item.state,
           to: input.state,
@@ -629,7 +631,7 @@ export function createRepository(db: Database): FeedbackRepository {
           payload: { targetId: plan.targetId, reason: plan.reason },
           createdAt: now,
         });
-        await enqueueEvent(t, source.boardId, "post.merged", {
+        await enqueueEvent(t, source.boardId, "v1.post.merged", {
           sourceId: plan.sourceId,
           targetId: plan.targetId,
         });
@@ -700,7 +702,7 @@ export function createRepository(db: Database): FeedbackRepository {
           })
           .returning();
         if (!row) throw new Error("Changelog entry creation failed.");
-        await enqueueEvent(t, input.boardId, "changelog.published", {
+        await enqueueEvent(t, input.boardId, "v1.changelog.published", {
           entryId: id,
           title,
         });
@@ -945,6 +947,17 @@ export function createRepository(db: Database): FeedbackRepository {
             throw new Error("Delivery lease held by another worker.");
           }
         }
+        // Recheck ownership in every write. The read above is only a helpful
+        // error path: a lease can expire and be claimed by another worker
+        // before this transaction reaches UPDATE.
+        const outcomeCondition = input.leaseOwner
+          ? and(
+              eq(schema.deliveries.id, input.deliveryId),
+              eq(schema.deliveries.status, "pending"),
+              eq(schema.deliveries.leaseOwner, input.leaseOwner),
+              gt(schema.deliveries.leaseExpiresAt, now),
+            )
+          : eq(schema.deliveries.id, input.deliveryId);
         const attempts = delivery.attempts + 1;
         if (input.ok) {
           const [row] = await t
@@ -954,9 +967,12 @@ export function createRepository(db: Database): FeedbackRepository {
               attempts,
               deliveredAt: now,
               lastError: null,
+              leaseOwner: null,
+              leaseExpiresAt: null,
             })
-            .where(eq(schema.deliveries.id, input.deliveryId))
+            .where(outcomeCondition)
             .returning();
+          if (!row) return toDelivery(delivery);
           await t
             .update(schema.webhooks)
             .set({ failureCount: 0, lastTriggeredAt: now })
@@ -972,9 +988,12 @@ export function createRepository(db: Database): FeedbackRepository {
               attempts,
               nextRetryAt: null,
               lastError: input.error ?? "delivery failed",
+              leaseOwner: null,
+              leaseExpiresAt: null,
             })
-            .where(eq(schema.deliveries.id, input.deliveryId))
+            .where(outcomeCondition)
             .returning();
+          if (!row) return toDelivery(delivery);
           await t
             .update(schema.webhooks)
             .set({
@@ -991,9 +1010,14 @@ export function createRepository(db: Database): FeedbackRepository {
             attempts,
             nextRetryAt: retryAt,
             lastError: input.error ?? "delivery failed",
+            // A retry must be claimable at nextRetryAt, not held until the
+            // original batch lease expires.
+            leaseOwner: null,
+            leaseExpiresAt: null,
           })
-          .where(eq(schema.deliveries.id, input.deliveryId))
+          .where(outcomeCondition)
           .returning();
+        if (!row) return toDelivery(delivery);
         await t
           .update(schema.webhooks)
           .set({
@@ -1052,7 +1076,7 @@ export function createRepository(db: Database): FeedbackRepository {
             payload: { from: item.state, to: input.state },
             createdAt: now,
           });
-          await enqueueEvent(t, item.boardId, "post.status_changed", {
+          await enqueueEvent(t, item.boardId, "v1.post.status_changed", {
             itemId: item.id,
             from: item.state,
             to: input.state,
@@ -1361,7 +1385,7 @@ export async function createComment(
       payload: { commentId: row.id },
       createdAt: now,
     });
-    await enqueueEvent(t, item.boardId, "comment.created", {
+    await enqueueEvent(t, item.boardId, "v1.comment.created", {
       itemId: input.itemId,
       commentId: row.id,
     });
@@ -1537,6 +1561,19 @@ export interface ProcessOutboxOptions {
   timeoutMs?: number;
   /** Lease duration in ms for claimed rows (default 60s). */
   leaseMs?: number;
+  /**
+   * Resolves and validates a hostname immediately before native delivery.
+   * Override this only with a transport that enforces an equivalent egress
+   * policy (for example an allowlisted proxy with connection pinning).
+   */
+  resolveWebhookHost?: (hostname: string) => Promise<readonly string[]>;
+}
+
+async function resolvePublicWebhookHost(hostname: string): Promise<readonly string[]> {
+  const answers = await lookup(hostname, { all: true, verbatim: true });
+  if (answers.length === 0) throw new Error("Webhook hostname did not resolve.");
+  for (const answer of answers) assertSafeWebhookAddress(answer.address);
+  return answers.map((answer) => answer.address);
 }
 
 async function withDeliveryTimeout<T extends { ok: boolean; error?: string }>(
@@ -1634,6 +1671,7 @@ export async function processOutbox(
         };
       }
     });
+  const validateDestination = options.resolveWebhookHost ?? resolvePublicWebhookHost;
 
   let delivered = 0;
   const repo = createRepository(db);
@@ -1677,6 +1715,11 @@ export async function processOutbox(
     // never an escaped throw that skips the batch or the retry schedule.
     let result: { ok: boolean; error?: string };
     try {
+      // Custom transports own their network boundary. Native fetch gets a
+      // just-in-time DNS check to reject rebinding to private infrastructure.
+      if (!options.deliver && !options.fetchImpl) {
+        await validateDestination(new URL(hook.url).hostname);
+      }
       result = await withDeliveryTimeout(
         deliver({
           url: hook.url,
@@ -1684,6 +1727,7 @@ export async function processOutbox(
             "content-type": "application/json",
             "X-Feedback-Signature": await signWebhook(hook.secret, body),
             "X-Feedback-Event": delivery.event,
+            "X-Feedback-Version": "1",
             "X-Feedback-Delivery": delivery.id,
           },
           body,

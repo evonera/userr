@@ -22,6 +22,7 @@ export default defineSchema({
     createdAt: v.number(), updatedAt: v.number(),
   })
     .index("by_board_state", ["boardId", "state"])
+    .index("by_board_moderation_state", ["boardId", "moderation", "state"])
     .index("by_board_normalized_title", ["boardId", "normalizedTitle"])
     .index("by_merged_into", ["mergedInto"])
     .searchIndex("search", { searchField: "searchText", filterFields: ["boardId", "state"] })

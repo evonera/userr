@@ -122,7 +122,7 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: now,
         payload: {},
       });
-      enqueue(input.boardId, "post.created", { itemId: id });
+      enqueue(input.boardId, "v1.post.created", { itemId: id });
       return item;
     },
     async findItem(id: string): Promise<FeedbackItem | null> {
@@ -178,7 +178,7 @@ function createMemoryRepository(): FeedbackRepository {
         payload: {},
       });
       if (VOTE_MILESTONES.includes(item.voteCount)) {
-        enqueue(item.boardId, "vote.milestone", {
+        enqueue(item.boardId, "v1.vote.milestone", {
           itemId: item.id,
           voteCount: item.voteCount,
         });
@@ -232,7 +232,7 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: Date.now(),
         payload: { from, to: input.state },
       });
-      enqueue(item.boardId, "post.status_changed", {
+      enqueue(item.boardId, "v1.post.status_changed", {
         itemId: item.id,
         from,
         to: input.state,
@@ -264,7 +264,7 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: plan.mergedAt,
         payload: { targetId: plan.targetId, reason: plan.reason },
       });
-      enqueue(source.boardId, "post.merged", {
+      enqueue(source.boardId, "v1.post.merged", {
         sourceId: plan.sourceId,
         targetId: plan.targetId,
       });
@@ -300,7 +300,7 @@ function createMemoryRepository(): FeedbackRepository {
         createdAt: now,
       };
       changelog.set(id, entry);
-      enqueue(input.boardId, "changelog.published", { entryId: id });
+      enqueue(input.boardId, "v1.changelog.published", { entryId: id });
       return entry;
     },
     async listChangelog(input: {

@@ -22,12 +22,12 @@ import type { MutationCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
 
 const eventType = v.union(
-  v.literal("post.created"),
-  v.literal("post.status_changed"),
-  v.literal("post.merged"),
-  v.literal("comment.created"),
-  v.literal("vote.milestone"),
-  v.literal("changelog.published"),
+  v.literal("v1.post.created"),
+  v.literal("v1.post.status_changed"),
+  v.literal("v1.post.merged"),
+  v.literal("v1.comment.created"),
+  v.literal("v1.vote.milestone"),
+  v.literal("v1.changelog.published"),
 );
 
 const publicWebhook = v.object({
@@ -300,6 +300,8 @@ export const recordOutcome = mutation({
         attempts,
         deliveredAt: now,
         lastError: undefined,
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
       });
       const hook = await ctx.db.get(delivery.webhookId);
       if (hook) {
@@ -314,6 +316,8 @@ export const recordOutcome = mutation({
         attempts,
         nextRetryAt: undefined,
         lastError: args.error ?? "delivery failed",
+        leaseOwner: undefined,
+        leaseExpiresAt: undefined,
       });
       const hook = await ctx.db.get(delivery.webhookId);
       if (hook) {
@@ -329,6 +333,9 @@ export const recordOutcome = mutation({
       attempts,
       nextRetryAt: retryAt,
       lastError: args.error ?? "delivery failed",
+      // Do not retain the batch lease across the retry delay.
+      leaseOwner: undefined,
+      leaseExpiresAt: undefined,
     });
     const hook = await ctx.db.get(delivery.webhookId);
     if (hook) {
@@ -440,6 +447,7 @@ export const deliverDue = action({
             "content-type": "application/json",
             "X-Feedback-Signature": await signWebhook(hook.secret, body),
             "X-Feedback-Event": delivery.event,
+            "X-Feedback-Version": "1",
             "X-Feedback-Delivery": delivery._id,
           },
           body,

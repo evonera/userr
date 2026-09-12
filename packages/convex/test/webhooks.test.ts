@@ -10,7 +10,7 @@ describe("webhooks", () => {
     const created = (await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     })) as { id: string; secret: string };
     expect(created.secret).toHaveLength(64);
     const hooks = (await t.query(api.webhooks.list, { boardId })) as {
@@ -31,7 +31,7 @@ describe("webhooks", () => {
       t.mutation(api.webhooks.create, {
         boardId,
         url: "ftp://example.com/hook",
-        events: ["post.created"],
+        events: ["v1.post.created"],
       }),
     ).rejects.toThrow();
   });
@@ -42,14 +42,14 @@ describe("webhooks", () => {
     const created = (await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     })) as { id: string };
     const itemId = await createItem(t, boardId);
     const deliveries = (await t.query(api.webhooks.deliveries, {
       webhookId: created.id,
     })) as { event: string; status: string; payload: { itemId: string } }[];
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].event).toBe("post.created");
+    expect(deliveries[0].event).toBe("v1.post.created");
     expect(deliveries[0].status).toBe("pending");
     expect(deliveries[0].payload.itemId).toBe(itemId);
   });
@@ -60,7 +60,7 @@ describe("webhooks", () => {
     const created = (await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.merged"],
+      events: ["v1.post.merged"],
     })) as { id: string };
     await createItem(t, boardId);
     const deliveries = (await t.query(api.webhooks.deliveries, {
@@ -75,7 +75,7 @@ describe("webhooks", () => {
     await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await createItem(t, boardId);
 
@@ -103,14 +103,14 @@ describe("webhooks", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0].url).toBe("https://example.com/hook");
     expect(seen[0].headers["X-Feedback-Signature"]).toMatch(/^sha256=[0-9a-f]+$/);
-    expect(seen[0].headers["X-Feedback-Event"]).toBe("post.created");
+    expect(seen[0].headers["X-Feedback-Event"]).toBe("v1.post.created");
     expect(seen[0].headers["X-Feedback-Delivery"]).toBeTruthy();
     const envelope = JSON.parse(seen[0].body) as {
       id: string;
       type: string;
       board: { id: string };
     };
-    expect(envelope.type).toBe("post.created");
+    expect(envelope.type).toBe("v1.post.created");
     expect(envelope.id).toBe(seen[0].headers["X-Feedback-Delivery"]);
 
     const deliveries = (await t.query(api.webhooks.deliveries, {})) as {
@@ -125,7 +125,7 @@ describe("webhooks", () => {
     const created = (await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     })) as { id: string };
     await createItem(t, boardId);
 
@@ -180,7 +180,7 @@ describe("webhooks", () => {
     const created = (await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     })) as { id: string; secret: string };
     const rotated = (await t.mutation(api.webhooks.rotateSecret, {
       id: created.id,
@@ -194,7 +194,7 @@ describe("webhooks", () => {
     const created = (await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     })) as { id: string };
     await createItem(t, boardId);
     await t.mutation(api.webhooks.remove, { id: created.id });
@@ -212,7 +212,7 @@ describe("webhooks", () => {
     await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await createItem(t, boardId);
     await createItem(t, boardId, { title: "Second" });
@@ -254,7 +254,7 @@ describe("webhooks", () => {
     await t.mutation(api.webhooks.create, {
       boardId,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await createItem(t, boardId);
 

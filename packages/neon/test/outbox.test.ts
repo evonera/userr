@@ -61,7 +61,7 @@ describe("webhook outbox", () => {
     const { webhook, secret } = await repo.createWebhook({
       boardId: board.id,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await repo.createItem({
       boardId: board.id,
@@ -80,12 +80,15 @@ describe("webhook outbox", () => {
     });
     expect(summary).toEqual({ attempted: 1, delivered: 1 });
     expect(seen).toHaveLength(1);
-    expect(seen[0].headers["X-Feedback-Event"]).toBe("post.created");
+    expect(seen[0].headers["X-Feedback-Event"]).toBe("v1.post.created");
+    expect(seen[0].headers["X-Feedback-Version"]).toBe("1");
     const envelope = JSON.parse(seen[0].body) as {
+      version: number;
       id: string;
       type: string;
     };
-    expect(envelope.type).toBe("post.created");
+    expect(envelope.version).toBe(1);
+    expect(envelope.type).toBe("v1.post.created");
     expect(
       await verifyWebhookSignature(
         secret,
@@ -111,7 +114,7 @@ describe("webhook outbox", () => {
     const { webhook } = await repo.createWebhook({
       boardId: board.id,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await repo.createItem({
       boardId: board.id,
@@ -173,7 +176,7 @@ describe("webhook outbox", () => {
           body: {
             boardId: board.id,
             url: "https://x.example/h",
-            events: ["post.created"],
+            events: ["v1.post.created"],
           },
         }),
       )
@@ -237,7 +240,7 @@ describe("webhook outbox", () => {
           body: {
             boardId: board.id,
             url: "https://x.example/h",
-            events: ["post.created"],
+            events: ["v1.post.created"],
           },
         }),
       )
@@ -246,14 +249,14 @@ describe("webhook outbox", () => {
       request(`/webhooks/${created.webhook.id}`, {
         method: "PATCH",
         actor: "moderator",
-        body: { active: false, events: ["post.merged"] },
+        body: { active: false, events: ["v1.post.merged"] },
       }),
     );
     expect(patched.status).toBe(200);
     const listed = (await (
       await handle(request(`/webhooks?boardId=${board.id}`, { actor: "moderator" }))
     ).json()) as { active: boolean; events: string[] }[];
-    expect(listed[0]).toMatchObject({ active: false, events: ["post.merged"] });
+    expect(listed[0]).toMatchObject({ active: false, events: ["v1.post.merged"] });
   });
 
   test("slow endpoints fail fast without stalling the batch", async () => {
@@ -263,7 +266,7 @@ describe("webhook outbox", () => {
     await repo.createWebhook({
       boardId: board.id,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await repo.createItem({
       boardId: board.id,
@@ -295,7 +298,7 @@ describe("webhook outbox", () => {
     const { webhook } = await repo.createWebhook({
       boardId: board.id,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await repo.createItem({
       boardId: board.id,
@@ -328,6 +331,35 @@ describe("webhook outbox", () => {
     ).rejects.toThrow(/lease/);
   });
 
+  test("a failed leased delivery releases its lease for the scheduled retry", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const { repo, board } = await boardWithItem(db);
+    const { webhook } = await repo.createWebhook({
+      boardId: board.id,
+      url: "https://example.com/hook",
+      events: ["v1.post.created"],
+    });
+    await repo.createItem({
+      boardId: board.id, title: "Second", body: "", kind: "idea", authorId: "alice",
+    });
+    const pending = (await repo.listDeliveries({ webhookId: webhook.id }))[0];
+    const now = Date.now();
+    const { deliveries } = await import("../src/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.update(deliveries).set({
+      leaseOwner: "worker-a", leaseExpiresAt: now + 60_000,
+    }).where(eq(deliveries.id, pending.id));
+
+    await repo.recordDeliveryOutcome({
+      deliveryId: pending.id, ok: false, at: now, leaseOwner: "worker-a",
+    });
+    const row = await db.select().from(deliveries).where(eq(deliveries.id, pending.id));
+    expect(row[0].leaseOwner).toBeNull();
+    expect(row[0].leaseExpiresAt).toBeNull();
+    expect(row[0].nextRetryAt).toBe(now + 60_000);
+  });
+
   test("throwing transports become failed attempts, not escapes", async () => {
     const { db, close: closeDb } = await setupDatabase();
     close = closeDb;
@@ -335,7 +367,7 @@ describe("webhook outbox", () => {
     await repo.createWebhook({
       boardId: board.id,
       url: "https://example.com/hook",
-      events: ["post.created"],
+      events: ["v1.post.created"],
     });
     await repo.createItem({
       boardId: board.id,
@@ -361,14 +393,14 @@ describe("webhook outbox", () => {
       repo.createWebhook({
         boardId: board.id,
         url: "http://127.0.0.1:3000/hook",
-        events: ["post.created"],
+        events: ["v1.post.created"],
       }),
     ).rejects.toThrow(/Invalid webhook URL/);
     await expect(
       repo.createWebhook({
         boardId: board.id,
         url: "http://169.254.169.254/meta",
-        events: ["post.created"],
+        events: ["v1.post.created"],
       }),
     ).rejects.toThrow(/Invalid webhook URL/);
   });

@@ -115,7 +115,7 @@ export const create = mutation({
       payload: { commentId: id },
       createdAt: now,
     });
-    await enqueueEvent(ctx, item.boardId, "comment.created", {
+    await enqueueEvent(ctx, item.boardId, "v1.comment.created", {
       itemId: args.itemId,
       commentId: id,
     });

@@ -70,6 +70,30 @@ function isBlockedIPv6(host: string): boolean {
   return false;
 }
 
+/** Validate an address returned by a delivery worker's DNS resolver. Unlike
+ * `assertSafeWebhookUrl`, this is intentionally address-based so the same
+ * private/link-local policy is applied after hostname resolution. */
+export function assertSafeWebhookAddress(address: string): void {
+  const value = address.toLowerCase();
+  if (isIPv4(value)) {
+    if (isBlockedIPv4(value)) {
+      throw new Error(`Unsafe webhook destination address: "${address}".`);
+    }
+    return;
+  }
+  // IPv4-mapped IPv6 can otherwise bypass the IPv4 private-range policy.
+  const mapped = value.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (mapped && isBlockedIPv4(mapped[1])) {
+    throw new Error(`Unsafe webhook destination address: "${address}".`);
+  }
+  if (
+    value === "::" || value === "::1" || value.startsWith("fe80:") ||
+    value.startsWith("fc") || value.startsWith("fd")
+  ) {
+    throw new Error(`Unsafe webhook destination address: "${address}".`);
+  }
+}
+
 const BLOCKED_HOSTNAMES = new Set([
   "localhost",
   "metadata.google.internal",
@@ -83,10 +107,11 @@ const BLOCKED_HOSTNAMES = new Set([
  * link-local (incl. cloud metadata endpoints), and malformed hosts at
  * registration time, on both adapters.
  *
- * Deliberately syntactic (no DNS resolution) so it runs offline in tests and
- * validators: DNS-rebinding past this check is a documented residual risk
- * (see webhook-protocol.md). Delivery complements it with redirect:"manual"
- * (no redirect-target SSRF) plus a bounded timeout.
+ * This is deliberately a registration-time, syntactic check: it is portable
+ * across the browser, Convex, and server runtimes. Server delivery workers
+ * must additionally validate DNS results immediately before connecting (see
+ * the Neon adapter's `resolveWebhookHost` option). Redirects are disabled so
+ * a validated URL cannot pivot to an unvalidated destination.
  */
 export function assertSafeWebhookUrl(url: string): void {
   let parsed: URL;
@@ -95,8 +120,8 @@ export function assertSafeWebhookUrl(url: string): void {
   } catch {
     throw new Error(`Invalid webhook URL: unparseable "${url}".`);
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Invalid webhook URL: must be http(s).");
+  if (parsed.protocol !== "https:") {
+    throw new Error("Invalid webhook URL: must use HTTPS.");
   }
   if (parsed.username || parsed.password) {
     throw new Error("Invalid webhook URL: credentials are not allowed.");
@@ -180,6 +205,7 @@ export function buildEnvelope(input: {
   data: Record<string, unknown>;
 }): WebhookEnvelope {
   return {
+    version: 1,
     id: input.deliveryId,
     type: input.type,
     occurredAt: input.occurredAt,

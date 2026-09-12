@@ -45,7 +45,7 @@ export const publish = mutation({
     await ctx.db.patch(id, {
       slug: `${slugBase}-${id.slice(-8).toLowerCase()}`,
     });
-    await enqueueEvent(ctx, args.boardId, "changelog.published", {
+    await enqueueEvent(ctx, args.boardId, "v1.changelog.published", {
       entryId: id,
       title,
     });

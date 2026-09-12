@@ -57,6 +57,13 @@ describe("destination policy", () => {
     );
   });
 
+  it("requires HTTPS even for a public host", () => {
+    assert.throws(
+      () => assertSafeWebhookUrl("http://example.com/hook"),
+      /must use HTTPS/,
+    );
+  });
+
   it("rejects loopback, private, and link-local targets", () => {
     const evil = [
       "http://127.0.0.1:3000/hook",

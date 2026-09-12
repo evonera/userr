@@ -8,17 +8,18 @@ last_error, last_triggered_at}` + deliveries ledger) + Fider (admin CRUD + test/
 
 ## Events (canonical names — never rename, only add)
 ```
-post.created · post.updated · post.status_changed · post.merged · post.deleted
-comment.created · vote.created (milestone-only: 10/25/50/100 to avoid spam)
-changelog.published · roadmap.changed
+v1.post.created · v1.post.status_changed · v1.post.merged
+v1.comment.created · v1.vote.milestone (10/25/50/100 only)
+v1.changelog.published
 ```
 Admin subscribes per-hook: `events[]` + `boardIds[]` (empty = all boards).
 
 ## Payload envelope (every event, both backends)
 ```json
 {
+  "version": 1,
   "id": "wh_evt_01J...",
-  "type": "post.status_changed",
+  "type": "v1.post.status_changed",
   "occurredAt": "2026-09-10T20:55:00.000Z",
   "board": { "id": "b_...", "slug": "feedback", "name": "Feedback" },
   "data": {
@@ -33,7 +34,8 @@ Admin subscribes per-hook: `events[]` + `boardIds[]` (empty = all boards).
 ## Signing (HMAC-SHA256, Discord/Slack-compatible verification)
 - Header `X-Feedback-Signature: sha256=<hex>` over raw body with per-hook `secret`
   (generated at creation, stored encrypted, rotatable, never logged).
-- Header `X-Feedback-Event` = event name; `X-Feedback-Delivery` = delivery id (idempotency key).
+- Header `X-Feedback-Event` = versioned event name; `X-Feedback-Version: 1` is the
+  envelope schema version; `X-Feedback-Delivery` = delivery id (idempotency key).
 - Receiver example (Node): `crypto.timingSafeEqual(received, expected)`.
 
 ## Delivery guarantees
@@ -43,6 +45,17 @@ Admin subscribes per-hook: `events[]` + `boardIds[]` (empty = all boards).
   after N consecutive failures (`failureCount/lastError/lastTriggeredAt` columns);
   per-delivery rows (`status: delivered/failed/pending`, attempts, response code).
 - Timeout 10s; 410/404 auto-disables hook (dead endpoint hygiene).
+
+## Destination policy
+- HTTPS only. Registration rejects credentials, localhost/internal names, private,
+  loopback, and link-local IP literals.
+- Neon resolves every native-fetch hostname immediately before delivery and rejects
+  private/link-local answers. If the host supplies a custom transport, that transport
+  is responsible for enforcing the same policy (ideally with an allowlisted egress
+  proxy that pins the validated destination for the connection).
+- Convex deployments should use an egress-controlled URL allowlist or proxy for
+  arbitrary third-party destinations; Convex validates the URL syntax and disables
+  redirects, but its sandbox does not expose a DNS-resolution API for pinning.
 
 ## Discord specifics
 - Native mode (recommended): bot posts rich embed per new post into mapped channel;

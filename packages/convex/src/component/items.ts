@@ -60,25 +60,26 @@ export const list = query({
   returns: pageOfItems,
   handler: async (ctx, args) => {
     const base = paginator(ctx.db, schema).query("items");
-    const scoped = args.state
-      ? base.withIndex("by_board_state", (q) =>
-          q.eq("boardId", args.boardId).eq("state", args.state!),
-        )
-      : base.withIndex("by_board_state", (q) =>
-          q.eq("boardId", args.boardId),
-        );
+    // Apply moderation before pagination. Filtering a completed page could
+    // produce empty/short pages and permanently skip approved items.
+    const moderation = args.includeModerated ? args.moderation : (args.moderation ?? "approved");
+    const scoped = moderation
+      ? base.withIndex("by_board_moderation_state", (q) => {
+          const byModeration = q.eq("boardId", args.boardId).eq("moderation", moderation);
+          return args.state ? byModeration.eq("state", args.state) : byModeration;
+        })
+      : args.state
+        ? base.withIndex("by_board_state", (q) =>
+            q.eq("boardId", args.boardId).eq("state", args.state!),
+          )
+        : base.withIndex("by_board_state", (q) => q.eq("boardId", args.boardId));
     // Newest first. Merged items stay in the listing with `state: "merged"`
     // and a `mergedInto` pointer: triage needs them, and public views filter
     // `state !== "merged"` (or query a specific state outright). The
-    // moderation queue is `moderation: "pending"` (filtered in TypeScript:
-    // moderation has no dedicated index yet).
+    // moderation queue is `moderation: "pending"`; its filter is part of the
+    // indexed query above so cursors remain accurate.
     const result = await scoped.order("desc").paginate(args.paginationOpts);
-    const page = result.page.filter((item) => {
-      if (args.moderation) return item.moderation === args.moderation;
-      if (args.includeModerated) return true;
-      return (item.moderation ?? "approved") === "approved";
-    });
-    return { ...result, page: page.map(toPublicItem) };
+    return { ...result, page: result.page.map(toPublicItem) };
   },
 });
 
@@ -212,7 +213,7 @@ export const create = mutation({
       payload: {},
       createdAt: now,
     });
-    await enqueueEvent(ctx, args.boardId, "post.created", {
+    await enqueueEvent(ctx, args.boardId, "v1.post.created", {
       itemId: id,
       title,
     });
@@ -246,7 +247,7 @@ export const setState = mutation({
       payload: { from: item.state, to: args.state },
       createdAt: now,
     });
-    await enqueueEvent(ctx, item.boardId, "post.status_changed", {
+    await enqueueEvent(ctx, item.boardId, "v1.post.status_changed", {
       itemId: args.itemId,
       from: item.state,
       to: args.state,
@@ -300,7 +301,7 @@ export const setStateMany = mutation({
         payload: { from: item.state, to: args.state },
         createdAt: now,
       });
-      await enqueueEvent(ctx, item.boardId, "post.status_changed", {
+      await enqueueEvent(ctx, item.boardId, "v1.post.status_changed", {
         itemId: item._id,
         from: item.state,
         to: args.state,
@@ -349,7 +350,7 @@ export const vote = mutation({
       createdAt: now,
     });
     if (VOTE_MILESTONES.includes(item.voteCount + 1)) {
-      await enqueueEvent(ctx, item.boardId, "vote.milestone", {
+      await enqueueEvent(ctx, item.boardId, "v1.vote.milestone", {
         itemId: args.itemId,
         voteCount: item.voteCount + 1,
       });
@@ -476,7 +477,7 @@ export const merge = mutation({
       payload: { targetId: args.targetId, reason: args.reason },
       createdAt: now,
     });
-    await enqueueEvent(ctx, source.boardId, "post.merged", {
+    await enqueueEvent(ctx, source.boardId, "v1.post.merged", {
       sourceId: args.sourceId,
       targetId: args.targetId,
     });

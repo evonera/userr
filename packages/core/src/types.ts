@@ -190,12 +190,12 @@ export interface MergePlan {
 }
 
 export type WebhookEventType =
-  | "post.created"
-  | "post.status_changed"
-  | "post.merged"
-  | "comment.created"
-  | "vote.milestone"
-  | "changelog.published";
+  | "v1.post.created"
+  | "v1.post.status_changed"
+  | "v1.post.merged"
+  | "v1.comment.created"
+  | "v1.vote.milestone"
+  | "v1.changelog.published";
 
 export interface Webhook {
   id: Id;
@@ -231,6 +231,8 @@ export interface Delivery {
 }
 
 export interface WebhookEnvelope {
+  /** Schema and event namespace version. Consumers must branch on this. */
+  version: 1;
   /** Delivery id — the idempotency key. */
   id: Id;
   type: WebhookEventType;
