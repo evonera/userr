@@ -33,6 +33,7 @@ test("add dry-run lists convex pages without writing", async () => {
     assert.match(result.stdout, /app\/admin\/feedback\/page\.tsx/);
     assert.match(result.stdout, /app\/admin\/feedback\/moderation\/page\.tsx/);
     assert.match(result.stdout, /app\/admin\/feedback\/changelog\/new\/page\.tsx/);
+    assert.match(result.stdout, /publisher-client\.tsx/);
     assert.match(result.stdout, /lib\/userr-email\.ts/);
     assert.match(result.stdout, /No files were written/);
     assert.equal(existsSync(join(root, "app", "feedback", "page.tsx")), false);

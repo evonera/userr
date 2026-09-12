@@ -935,14 +935,15 @@ export function createRepository(db: Database): FeedbackRepository {
         const delivery = rows[0];
         if (!delivery) throw new Error("Delivery not found.");
         const now = input.at ?? Date.now();
-        // Leases are advisory for direct callers but binding between workers:
-        // a live lease owned by someone else rejects the outcome.
-        if (
-          delivery.leaseOwner &&
-          (delivery.leaseExpiresAt ?? 0) > now &&
-          input.leaseOwner !== delivery.leaseOwner
-        ) {
-          throw new Error("Delivery lease held by another worker.");
+        // Unleased rows support direct/admin callers. Once claimed, only the
+        // current owner may record an outcome before its lease expires.
+        if (delivery.leaseOwner) {
+          if ((delivery.leaseExpiresAt ?? 0) <= now) {
+            return toDelivery(delivery);
+          }
+          if (input.leaseOwner !== delivery.leaseOwner) {
+            throw new Error("Delivery lease held by another worker.");
+          }
         }
         const attempts = delivery.attempts + 1;
         if (input.ok) {
@@ -1538,6 +1539,24 @@ export interface ProcessOutboxOptions {
   leaseMs?: number;
 }
 
+async function withDeliveryTimeout<T extends { ok: boolean; error?: string }>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T | { ok: false; error: string }> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<{ ok: false; error: string }>((resolve) => {
+    timeout = setTimeout(
+      () => resolve({ ok: false, error: "delivery timed out" }),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([operation, timedOut]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 /**
  * Host-run outbox worker. The host schedules this (cron, interval, queue
  * worker) with its own runtime: reads due deliveries, POSTs signed envelopes
@@ -1552,7 +1571,11 @@ export async function processOutbox(
   const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
   const now = options.now ?? Date.now();
   const timeoutMs = options.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
-  const leaseMs = options.leaseMs ?? 60_000;
+  // Deliveries are processed serially. Lease the full worst-case batch so a
+  // later row cannot be reclaimed while this worker still intends to send it.
+  const leaseMs =
+    options.leaseMs ??
+    Math.max(60_000, limit * (timeoutMs + 2_000) + 5_000);
   const owner = `worker-${now}-${Math.floor(Math.random() * 1e9)}`;
   // Atomic claim: only rows without a live lease move to this worker, so
   // overlapping workers never send the same delivery twice.
@@ -1654,16 +1677,19 @@ export async function processOutbox(
     // never an escaped throw that skips the batch or the retry schedule.
     let result: { ok: boolean; error?: string };
     try {
-      result = await deliver({
-        url: hook.url,
-        headers: {
-          "content-type": "application/json",
-          "X-Feedback-Signature": await signWebhook(hook.secret, body),
-          "X-Feedback-Event": delivery.event,
-          "X-Feedback-Delivery": delivery.id,
-        },
-        body,
-      });
+      result = await withDeliveryTimeout(
+        deliver({
+          url: hook.url,
+          headers: {
+            "content-type": "application/json",
+            "X-Feedback-Signature": await signWebhook(hook.secret, body),
+            "X-Feedback-Event": delivery.event,
+            "X-Feedback-Delivery": delivery.id,
+          },
+          body,
+        }),
+        timeoutMs,
+      );
     } catch (error) {
       result = {
         ok: false,

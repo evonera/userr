@@ -283,12 +283,15 @@ export const recordOutcome = mutation({
     const delivery = await ctx.db.get(args.deliveryId);
     if (!delivery) return null;
     const now = Date.now();
-    if (
-      delivery.leaseOwner &&
-      (delivery.leaseExpiresAt ?? 0) > now &&
-      args.leaseOwner !== delivery.leaseOwner
-    ) {
-      throw new Error("Delivery lease held by another worker.");
+    if (delivery.leaseOwner) {
+      if ((delivery.leaseExpiresAt ?? 0) <= now) {
+        // A stale worker must never record an outcome after its own lease has
+        // elapsed; a later worker may already have reclaimed the delivery.
+        return null;
+      }
+      if (args.leaseOwner !== delivery.leaseOwner) {
+        throw new Error("Delivery lease held by another worker.");
+      }
     }
     const attempts = delivery.attempts + 1;
     if (args.ok) {
@@ -392,9 +395,13 @@ export const deliverDue = action({
   handler: async (ctx, args) => {
     const owner = `cron-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
     const timeoutMs = args.timeoutMs ?? WEBHOOK_TIMEOUT_MS;
+    const requestedLimit = Math.min(Math.max(args.limit ?? 20, 1), 100);
+    // Deliveries are processed serially. Keep every claimed row leased for the
+    // worst-case whole batch, rather than reclaiming later rows mid-run.
+    const leaseMs = Math.max(60_000, requestedLimit * (timeoutMs + 2_000) + 5_000);
     const due: Doc<"deliveries">[] = await ctx.runMutation(
       internal.webhooks.claimDue,
-      { owner, limit: args.limit },
+      { owner, limit: requestedLimit, leaseMs },
     );
     let delivered = 0;
     for (const delivery of due) {

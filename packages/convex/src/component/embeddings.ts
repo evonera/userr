@@ -114,9 +114,14 @@ export const findSimilarVector = action({
     });
     const docs = (await ctx.runQuery(internal.embeddings.getByIds, {
       ids: hits.map((hit) => hit._id),
-    })) as ({ _id: Id<"items">; title: string; voteCount: number; mergedInto?: Id<"items"> } | null)[];
+    })) as ({ _id: Id<"items">; title: string; voteCount: number; mergedInto?: Id<"items">; moderation?: string } | null)[];
     return docs
-      .filter((doc) => doc !== null && !doc.mergedInto)
+      .filter(
+        (doc) =>
+          doc !== null &&
+          !doc.mergedInto &&
+          (doc.moderation ?? "approved") === "approved",
+      )
       .slice(0, limit)
       .map((doc) => ({
         id: doc!._id,

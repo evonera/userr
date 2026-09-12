@@ -114,6 +114,7 @@ function filesForAdd({ backend, framework }) {
   files["app/admin/feedback/page.tsx"] = triagePage({ backend });
   files["app/admin/feedback/moderation/page.tsx"] = moderationPage({ backend });
   files["app/admin/feedback/changelog/new/page.tsx"] = publisherPage({ backend });
+  files["app/admin/feedback/changelog/new/publisher-client.tsx"] = publisherClient();
   files["lib/userr-email.ts"] = emailHook();
   return files;
 }
@@ -130,7 +131,11 @@ function moderationPage({ backend }) {
 
 function publisherPage({ backend }) {
   void backend;
-  return `${OWNERSHIP}import { FeedbackProvider, ChangelogPublisher } from "@userr/react";\nimport { notifySubscribers } from "@/lib/userr-email";\n\n// Server component: onPublish below is a Server Action, so RESEND_API_KEY\n// never reaches the browser. TODO: gate this route to moderators\n// (middleware), load shipped items, publish the entry, fetch subscriber\n// emails for linked items, then notify.\nasync function publishAndNotify(input: { title: string; body: string; version?: string; linkedItemIds: string[] }) {\n  "use server";\n  // 1. publish (Convex: api.changelog.publish; Neon: repo.publishChangelogEntry),\n  // 2. fetch subscriber emails for input.linkedItemIds,\n  // 3. await notifySubscribers({ postTitle: input.title, postUrl: "...", from: "...", to: "shipped", recipients: [...] });\n  void input;\n  throw new Error("Wire publishAndNotify to your backend and email list.");\n}\nexport default function ChangelogPublisherPage() {\n  return <FeedbackProvider><main><ChangelogPublisher shippedItems={[]} onPublish={publishAndNotify} /></main></FeedbackProvider>;\n}\n`;
+  return `${OWNERSHIP}import PublisherClient from "./publisher-client";\nimport { notifySubscribers } from "@/lib/userr-email";\n\n// Server component: onPublish below is a Server Action, so RESEND_API_KEY\n// never reaches the browser. TODO: gate this route to moderators\n// (middleware), load shipped items, publish the entry, fetch subscriber\n// emails for linked items, then notify.\nasync function publishAndNotify(input: { title: string; body: string; version?: string; linkedItemIds: string[] }) {\n  "use server";\n  // 1. publish (Convex: api.changelog.publish; Neon: repo.publishChangelogEntry),\n  // 2. fetch subscriber emails for input.linkedItemIds,\n  // 3. await notifySubscribers({ postTitle: input.title, postUrl: "...", from: "...", to: "shipped", recipients: [...] });\n  void input;\n  throw new Error("Wire publishAndNotify to your backend and email list.");\n}\nexport default function ChangelogPublisherPage() {\n  return <main><PublisherClient onPublish={publishAndNotify} /></main>;\n}\n`;
+}
+
+function publisherClient() {
+  return `${OWNERSHIP}"use client";\nimport { FeedbackProvider, ChangelogPublisher } from "@userr/react";\n\ntype PublishInput = { title: string; body: string; version?: string; linkedItemIds: string[] };\n\nexport default function PublisherClient({ onPublish }: { onPublish: (input: PublishInput) => Promise<void> }) {\n  return <FeedbackProvider><ChangelogPublisher shippedItems={[]} onPublish={onPublish} /></FeedbackProvider>;\n}\n`;
 }
 
 function emailHook() {
