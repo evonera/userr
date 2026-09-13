@@ -49,6 +49,9 @@ testable in every adapter.
 - Widget DOM tests: `jsdom` and `@types/jsdom` are development-only dependencies
   used to exercise the dependency-free renderer without shipping DOM emulation in
   `@userr/widget` or its browser bundle.
+- Widget browser tests: `@playwright/test` is development-only and runs Chromium
+  against the built IIFE in CI; the browser binary is installed during CI and is
+  not part of the published package.
 - Generated email notifications: `resend` is an optional, host-installed
   dependency used only by the CLI's server-only notification scaffold. The
   host owns its API key, verified sender, recipient data, and delivery policy;

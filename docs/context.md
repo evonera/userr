@@ -34,7 +34,8 @@ API keys, or customer secrets.
   hooks + `/rest` client); messages dict; widget launcher wrapper.
 - `@userr/widget`: framework-agnostic, Shadow-DOM launcher with an explicit
   consent/metadata boundary, URL redaction, controlled feedback flows, and a
-  browser IIFE distribution. Screenshot annotation and storage are not built.
+  dependency-free DOM flow renderer. Its browser IIFE privacy boundary is
+  covered in Chromium. Screenshot annotation and storage are not built.
 - `@userr/cli`: `init`, `add` (Convex, Neon, and Supabase; RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
 - `@userr/supabase`: a demand-gated Supabase distribution of the tested

@@ -40,7 +40,7 @@
 - build: `esbuild` or `tsdown`, `typescript`, versioned `widget.v*.js` output
 - capture: `html-to-image` or `@zumer/snapdom` (DOM→canvas, no getDisplayMedia prompt)
 - dev/test: `jsdom@^30.0.1` + `@types/jsdom@^27.0.0` for DOM renderer
-  integration tests; `@playwright/test` for real-browser coverage; `wrangler`
+  integration tests; `@playwright/test@^1.63.0` for real-browser coverage; `wrangler`
   only if Cloudflare preview is used. None ship in the IIFE bundle.
 
 ## @userr/cli
