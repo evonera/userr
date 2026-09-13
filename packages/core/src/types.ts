@@ -163,6 +163,11 @@ export interface EmbeddingProvider {
   dimensions: number;
 }
 
+/** Optional host-owned text generation for summaries and draft replies. */
+export interface TextGenerationProvider {
+  complete(input: { prompt: string }): Promise<string>;
+}
+
 export interface BlobStore {
   put(input: { key: string; contentType: string; bytes: Uint8Array }): Promise<{ key: string; url?: string }>;
   remove(key: string): Promise<void>;
