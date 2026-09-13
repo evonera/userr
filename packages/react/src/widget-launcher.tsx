@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useRef } from "react";
 import { init, type FeedbackWidget, type WidgetConfig } from "@userr/widget";
 
