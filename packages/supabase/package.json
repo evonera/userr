@@ -1,11 +1,23 @@
 {
   "name": "@userr/supabase",
   "version": "0.1.0",
-  "description": "Supabase RLS and Realtime templates for Userr.",
+  "description": "Supabase RLS, private Realtime, and Postgres repository adapter for Userr.",
   "license": "MIT",
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "files": ["dist", "supabase"],
-  "dependencies": { "@userr/core": "0.1.0" },
-  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" }
+  "dependencies": {
+    "@userr/core": "0.1.0",
+    "@userr/neon": "0.1.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "drizzle-orm": "^0.44.0",
+    "vitest": "^2.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  }
 }

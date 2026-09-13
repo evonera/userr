@@ -16,6 +16,7 @@ catalogs for phase implementation.
 | [Reference architecture](./reference-architecture.md) | Backend and framework design references |
 | [Feature catalog](./feature-catalog.md) | Exhaustive feedback-suite feature inventory |
 | [Adapter matrix](./adapter-matrix.md) | Supported backend order and capability rules |
+| [Supabase adapter](./supabase.md) | Supabase migration, RLS, and Realtime guidance |
 | [Integration catalog](./integration-catalog.md) | Plugin priorities and contracts |
 | [Webhook protocol](./webhook-protocol.md) | Event envelope, signing, retries, security |
 | [Dependency catalog](./dependency-catalog.md) | Package-level dependency candidates |
