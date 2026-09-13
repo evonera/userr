@@ -17,6 +17,10 @@ resolve the current actor and authorization (see `src/client/index.ts`:
 `assertTransitionAllowed`), then call the component through your generated
 `components.userr` reference. This keeps Better Auth, Clerk, Convex Auth, or a
 user table entirely in the host app. `fixtures/next-convex` shows the pattern.
+For widget submissions, `createWidgetHostHandler` verifies the HMAC token in the
+host runtime and accepts callbacks that invoke `rateLimits.consumeAllOrNothing`
+and `items.create`; neither the signing secret nor raw network address enters
+the component.
 
 ## Surface
 
