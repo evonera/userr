@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createPostgresRateLimiter } from "../src/rate-limiter.js";
+import { createPostgresRateLimiter, pruneExpiredRateLimits } from "../src/rate-limiter.js";
 import { rateLimitCounters } from "../src/schema.js";
 import { setupDatabase, type TestDb } from "./setup.js";
 
@@ -14,10 +14,14 @@ describe("Postgres widget rate limiter", () => {
   it("resets expired windows", async () => {
     let now = 1_000; const limiter = createPostgresRateLimiter(db, { now: () => now }); const request = [{ key: "subject", limit: 1, windowMs: 1_000 }];
     await expect(limiter.consumeAllOrNothing(request)).resolves.toEqual({ allowed: true }); now = 2_000; await expect(limiter.consumeAllOrNothing(request)).resolves.toEqual({ allowed: true });
-    const rows = await db.select().from(rateLimitCounters); expect(rows[0]).toMatchObject({ windowStart: 2_000, count: 1 });
+    const rows = await db.select().from(rateLimitCounters); expect(rows[0]).toMatchObject({ windowStart: 2_000, expiresAt: 3_000, count: 1 });
   });
   it("admits only one concurrent request at a limit of one", async () => {
     const limiter = createPostgresRateLimiter(db, { now: () => 1_000 }); const request = [{ key: "shared", limit: 1, windowMs: 60_000 }]; const results = await Promise.all([limiter.consumeAllOrNothing(request), limiter.consumeAllOrNothing(request)]);
     expect(results.filter((result) => result.allowed)).toHaveLength(1); expect(results.filter((result) => !result.allowed)).toHaveLength(1); const rows = await db.select().from(rateLimitCounters); expect(rows[0]?.count).toBe(1);
+  });
+  it("prunes stale rows in bounded batches without deleting live counters", async () => {
+    await db.insert(rateLimitCounters).values([{ key: "stale-a", windowStart: 0, expiresAt: 1, count: 1 }, { key: "stale-b", windowStart: 0, expiresAt: 1, count: 1 }, { key: "live", windowStart: 0, expiresAt: 10_000, count: 1 }]);
+    await expect(pruneExpiredRateLimits(db, { before: 5_000, limit: 1 })).resolves.toBe(1); let rows = await db.select().from(rateLimitCounters); expect(rows).toHaveLength(2); await expect(pruneExpiredRateLimits(db, { before: 5_000, limit: 10 })).resolves.toBe(1); rows = await db.select().from(rateLimitCounters); expect(rows.map((row) => row.key)).toEqual(["live"]);
   });
 });
