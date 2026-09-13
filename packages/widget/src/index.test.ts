@@ -50,6 +50,9 @@ test("flows resolve conditions and reject incomplete or ambiguous schemas", () =
   assert.throws(() => validateFlow({ id: "bad", fields: [{ id: "   ", label: "Blank" }] }, {}), /non-empty/);
   assert.throws(() => validateFlow({ id: "bad", fields: [{ id: " title", label: "Title" }] }, {}), /whitespace/);
   assert.deepEqual(validateFlow({ id: "prototype", fields: [{ id: "constructor", label: "Constructor", required: true }] }, {}).missing, ["constructor"]);
+  assert.throws(() => validateFlow({ id: "missing" }, {}), /exactly one/);
+  assert.throws(() => validateFlow({ id: "empty", fields: [] }, {}), /at least one field/);
+  assert.throws(() => validateFlow({ id: "ambiguous", fields: [], screens: [{ id: "s", fields: [] }] }, {}), /exactly one/);
 });
 test("flow renderer updates conditions, reports missing values, and submits host-owned data", async () => {
   const dom = new JSDOM("<main></main>"); const container = dom.window.document.querySelector("main") as HTMLElement; let submitted: Readonly<Record<string, string>> | undefined;
@@ -77,4 +80,11 @@ test("multi-screen flows validate each screen before navigation", async () => {
   next.click(); assert.equal(title.getAttribute("aria-invalid"), "true"); assert.equal(body.closest("section")?.hidden, true);
   title.value = "Broken"; title.dispatchEvent(new dom.window.Event("input", { bubbles: true })); next.click(); assert.equal(body.closest("section")?.hidden, false);
   form.requestSubmit(); assert.equal(body.getAttribute("aria-invalid"), "true"); body.value = "Steps"; body.dispatchEvent(new dom.window.Event("input", { bubbles: true })); form.requestSubmit(); await Promise.resolve(); assert.deepEqual(submitted, { title: "Broken", body: "Steps" });
+});
+test("Enter advances sequentially and conditional screen changes preserve identity", async () => {
+  const dom = new JSDOM("<main></main>"); const container = dom.window.document.querySelector("main")!; let submissions = 0;
+  renderFlow(container, { id: "conditional", screens: [{ id: "optional", fields: [{ id: "show", label: "Show" }], when: (values) => values.keep !== "no" }, { id: "current", fields: [{ id: "keep", label: "Keep" }] }, { id: "final", fields: [{ id: "done", label: "Done" }] }] }, { initialValues: { done: "ready" }, onSubmit: () => { submissions += 1; } });
+  const form = container.querySelector("form")!; form.requestSubmit(); assert.equal(form.querySelector<HTMLElement>('[data-userr-screen="current"]')?.hidden, false); assert.equal(submissions, 0);
+  const keep = form.querySelector('[name="keep"]') as HTMLInputElement; keep.value = "no"; keep.dispatchEvent(new dom.window.Event("input", { bubbles: true })); assert.equal(form.querySelector<HTMLElement>('[data-userr-screen="current"]')?.hidden, false);
+  form.requestSubmit(); assert.equal(form.querySelector<HTMLElement>('[data-userr-screen="final"]')?.hidden, false); assert.equal(submissions, 0); form.requestSubmit(); await Promise.resolve(); assert.equal(submissions, 1);
 });
