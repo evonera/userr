@@ -70,6 +70,21 @@ test("generated neon route exposes all handler methods", async () => {
   }
 });
 
+test("Supabase add owns a server-only Postgres route through its public exports", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), nextProject());
+    const result = runIn(root, ["add", "--backend", "supabase"]);
+    assert.equal(result.status, 0, result.stderr);
+    const route = readFileSync(join(root, "app", "api", "userr", "[...path]", "route.ts"), "utf8");
+    assert.match(route, /from "@userr\/supabase"/);
+    assert.match(route, /from "@userr\/supabase\/schema"/);
+    assert.match(route, /GET, POST, PATCH, DELETE/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("init supports the neon backend without convex files", async () => {
   const root = await mkdtemp(join(tmpdir(), "userr-"));
   try {
@@ -133,6 +148,20 @@ test("neon doctor passes once the package and route exist", async () => {
     runIn(root, ["add", "--backend", "neon"]);
     const doctor = runIn(root, ["doctor"]);
     assert.equal(doctor.status, 0, doctor.stdout);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Supabase doctor requires its own package and generated route", async () => {
+  const root = await mkdtemp(join(tmpdir(), "userr-"));
+  try {
+    await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { next: "^15.0.0", "@userr/supabase": "0.1.0" } }));
+    runIn(root, ["init", "--backend", "supabase"]);
+    runIn(root, ["add", "--backend", "supabase"]);
+    const doctor = runIn(root, ["doctor"]);
+    assert.equal(doctor.status, 0, doctor.stdout);
+    assert.match(doctor.stdout, /@userr\/supabase installed/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
