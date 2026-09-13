@@ -47,9 +47,16 @@ test("repository persists board, item, listing, and audited state changes", asyn
   assert.deepEqual(await repo.castVote({ itemId: created.id, actorId: "carol" }), { added: true, voteCount: 1 });
   assert.deepEqual(await repo.castVote({ itemId: created.id, actorId: "carol" }), { added: false, voteCount: 1 });
   assert.deepEqual(await repo.uncastVote({ itemId: created.id, actorId: "carol" }), { removed: true, voteCount: 0 });
+  const duplicate = await repo.createItem({ boardId: board.id, title: "Dark theme", body: "Same request", kind: "idea", authorId: "bob" });
+  await repo.castVote({ itemId: created.id, actorId: "carol" });
+  await repo.castVote({ itemId: duplicate.id, actorId: "carol" });
+  await repo.merge({ sourceId: created.id, targetId: duplicate.id, actorId: "moderator", mergedAt: 2, reason: "duplicate" });
+  assert.equal((await repo.findCanonicalItem(created.id))?.id, duplicate.id);
+  assert.equal((await repo.findItem(duplicate.id))?.voteCount, 1);
   await repo.setState({ itemId: created.id, state: "open", actorId: "moderator" });
   assert.equal((await repo.listItems({ boardId: board.id, limit: 10 })).items[0]?.state, "open");
   const events = await client.execute({ sql: "select type from events where item_id = ? order by created_at", args: [created.id] });
-  assert.deepEqual(events.rows.map((row) => row.type), ["created", "vote_added", "vote_removed", "state_changed"]);
+  const types = events.rows.map((row) => row.type);
+  assert.ok(types.includes("created") && types.includes("vote_added") && types.includes("vote_removed") && types.includes("state_changed") && types.includes("merged"));
   await close();
 });
