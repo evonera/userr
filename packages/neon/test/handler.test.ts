@@ -191,7 +191,7 @@ describe("request handler", () => {
       await handle(request("/boards", {
         method: "POST",
         actor: "owner",
-        body: { slug: "widget", name: "Widget", allowedKinds: ["idea"] },
+        body: { slug: "widget", name: "Widget", allowedKinds: ["idea", "feedback"] },
       }))
     ).json()) as { id: string };
     const now = Date.now();
@@ -229,6 +229,16 @@ describe("request handler", () => {
       body: { boardId: board.id, hostToken: wrongBoardToken, title: "Nope", category: "feature" },
     }));
     expect(invalid.status).toBe(401);
+
+    const questionToken = await signWidgetToken(secret, {
+      version: 1, boardId: board.id, subject: "visitor-456", nonce: "nonce-question", issuedAt: now, expiresAt: now + 60_000,
+    });
+    const question = await handle(request("/widget/items", {
+      method: "POST",
+      body: { boardId: board.id, hostToken: questionToken, title: "How does this work?", category: "question" },
+    }));
+    expect(question.status).toBe(201);
+    expect(await question.json()).toMatchObject({ kind: "feedback" });
 
     const unconfigured = createRequestHandler({
       db,

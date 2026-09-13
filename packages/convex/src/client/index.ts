@@ -30,7 +30,7 @@ export interface WidgetHostHandlerOptions {
   secret: string;
   networkFingerprint: (req: Request) => string | Promise<string>;
   consumeAllOrNothing: AtomicRateLimiter["consumeAllOrNothing"];
-  createItem: (input: { boardId: string; actorId: string; title: string; body: string; kind: "bug" | "idea" | "support" }) => Promise<unknown>;
+  createItem: (input: { boardId: string; actorId: string; title: string; body: string; kind: "bug" | "idea" | "feedback" }) => Promise<unknown>;
   subjectLimit?: Omit<RateLimitRequest, "key">;
   networkLimit?: Omit<RateLimitRequest, "key">;
 }
@@ -50,13 +50,15 @@ export function createWidgetHostHandler(options: WidgetHostHandlerOptions): (req
     let networkFingerprint: string;
     try { networkFingerprint = await options.networkFingerprint(req); }
     catch { return Response.json({ error: "Widget submission could not be authorized." }, { status: 500 }); }
-    const authorization = await authorizeWidgetSubmission({ token, secret: options.secret, boardId, networkFingerprint, limiter: { consumeAllOrNothing: options.consumeAllOrNothing }, ...(options.subjectLimit ? { subjectLimit: options.subjectLimit } : {}), ...(options.networkLimit ? { networkLimit: options.networkLimit } : {}) });
+    let authorization;
+    try { authorization = await authorizeWidgetSubmission({ token, secret: options.secret, boardId, networkFingerprint, limiter: { consumeAllOrNothing: options.consumeAllOrNothing }, ...(options.subjectLimit ? { subjectLimit: options.subjectLimit } : {}), ...(options.networkLimit ? { networkLimit: options.networkLimit } : {}) }); }
+    catch { return Response.json({ error: "Widget submission could not be authorized." }, { status: 500 }); }
     if (!authorization.allowed) {
       if (authorization.reason !== "rate_limited") return Response.json({ error: "Widget host token is invalid." }, { status: 401 });
       const headers = new Headers(); if (authorization.retryAfterMs !== undefined) headers.set("retry-after", String(Math.max(1, Math.ceil(authorization.retryAfterMs / 1000))));
       return Response.json({ error: "Widget submission rate limit exceeded." }, { status: 429, headers });
     }
-    const kinds = { bug: "bug", feature: "idea", question: "support" } as const;
+    const kinds = { bug: "bug", feature: "idea", question: "feedback" } as const;
     if (!Object.hasOwn(kinds, category)) return Response.json({ error: "category must be bug, feature, or question." }, { status: 400 });
     try {
       const item = await options.createItem({ boardId, actorId: authorization.claims.subject, title, body: typeof body.body === "string" ? body.body : "", kind: kinds[category as keyof typeof kinds] });
