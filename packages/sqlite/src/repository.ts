@@ -4,6 +4,7 @@ import {
   ITEM_STATES,
   assertSafeWebhookUrl,
   generateWebhookSecret,
+  nextRetryAt,
   normalizeText,
   secretPreview,
   type Board,
@@ -210,6 +211,23 @@ export function createRepository(client: SqliteClient) {
     },
     async rotateWebhookSecret(input: { id: string }) { const secret = generateWebhookSecret(); const result = await client.execute({ sql: "update webhooks set secret = ? where id = ?", args: [secret, input.id] }); if (!result.rowsAffected) throw new Error("Webhook not found."); return { secret }; },
     async deleteWebhook(input: { id: string }): Promise<void> { await client.execute({ sql: "delete from webhooks where id = ?", args: [input.id] }); },
+    async listDeliveries(input: { webhookId?: string; status?: "pending" | "delivered" | "failed"; limit?: number }) {
+      const where: string[] = []; const args: SqliteValue[] = [];
+      if (input.webhookId) { where.push("webhook_id = ?"); args.push(input.webhookId); }
+      if (input.status) { where.push("status = ?"); args.push(input.status); }
+      const rows = (await client.execute({ sql: `select * from deliveries${where.length ? ` where ${where.join(" and ")}` : ""} order by created_at, id limit ?`, args: [...args, input.limit ?? 100] })).rows;
+      return rows.map((row) => ({ id: String(row.id), webhookId: String(row.webhook_id), event: row.event as WebhookEventType, payload: parse<Record<string, unknown>>(row.payload, {}), status: row.status as "pending" | "delivered" | "failed", attempts: number(row.attempts), ...(row.next_retry_at ? { nextRetryAt: number(row.next_retry_at) } : {}), ...(row.last_error ? { lastError: String(row.last_error) } : {}), ...(row.delivered_at ? { deliveredAt: number(row.delivered_at) } : {}) }));
+    },
+    async recordDeliveryOutcome(input: { deliveryId: string; ok: boolean; error?: string; at?: number; leaseOwner?: string }) {
+      return write(client, async (tx) => {
+        const row = (await tx.execute({ sql: "select * from deliveries where id = ?", args: [input.deliveryId] })).rows[0]; if (!row) throw new Error("Delivery not found.");
+        const at = input.at ?? Date.now(); const attempts = number(row.attempts) + 1;
+        const retry = input.ok ? null : nextRetryAt(attempts, at); const status = input.ok ? "delivered" : retry === null ? "failed" : "pending";
+        await tx.execute({ sql: "update deliveries set status = ?, attempts = ?, next_retry_at = ?, last_error = ?, delivered_at = ? where id = ?", args: [status, attempts, retry, input.ok ? null : input.error ?? "delivery failed", input.ok ? at : null, input.deliveryId] });
+        const updated = { id: String(row.id), webhookId: String(row.webhook_id), event: row.event as WebhookEventType, payload: parse<Record<string, unknown>>(row.payload, {}), status: status as "pending" | "delivered" | "failed", attempts, ...(retry ? { nextRetryAt: retry } : {}), ...(!input.ok ? { lastError: input.error ?? "delivery failed" } : {}), ...(input.ok ? { deliveredAt: at } : {}) };
+        return updated;
+      });
+    },
     async castVote(input: { itemId: string; actorId: string }): Promise<{ added: boolean; voteCount: number }> {
       return write(client, async (tx) => {
         const row = (await tx.execute({ sql: "select board_id, vote_count from items where id = ?", args: [input.itemId] })).rows[0];
