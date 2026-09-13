@@ -17,3 +17,4 @@ export * from "./triage-inbox.js";
 export * from "./moderation-queue.js";
 export * from "./merge-review.js";
 export * from "./use-hotkeys.js";
+export * from "./widget-launcher.js";

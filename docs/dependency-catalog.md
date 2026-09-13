@@ -34,6 +34,8 @@
   `javascript-time-ago` or `dayjs` — timestamps
 
 ## @userr/widget (vanilla IIFE — zero runtime deps by design)
+- `@userr/react` depends on this local workspace package only for its optional
+  lifecycle wrapper; the browser bundle itself has no third-party runtime code.
 - runtime: none (BugDrop/Reflet discipline; React is peer-only for wrapper)
 - build: `esbuild` or `tsdown`, `typescript`, versioned `widget.v*.js` output
 - capture: `html-to-image` or `@zumer/snapdom` (DOM→canvas, no getDisplayMedia prompt)
