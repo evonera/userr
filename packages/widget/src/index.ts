@@ -7,7 +7,7 @@ export interface ScreenshotCaptureInput { masks: readonly { x: number; y: number
 export interface WidgetConfig {
   boardId: string; submit: (input: WidgetSubmission) => Promise<void>; theme?: Theme;
   /** Short-lived token minted and verified by the host. The signing secret never enters the browser. */
-  hostToken?: string;
+  hostToken?: string; getHostToken?: () => string | undefined | Promise<string | undefined>;
   metadata?: Metadata; metadataAllowlist?: readonly string[]; consent?: CaptureConsent; capturePolicy?: CapturePolicy;
   /** Optional host capture implementation. It receives masks before it returns a blob. */
   captureScreenshot?: (input: ScreenshotCaptureInput) => Promise<Blob | undefined>;
@@ -20,7 +20,7 @@ export interface FeedbackFlow { id: string; title?: string; fields: readonly Flo
 export interface FlowValidation { activeFields: readonly FlowField[]; missing: readonly string[]; }
 export interface RenderFlowOptions { initialValues?: Readonly<Record<string, string>>; submitLabel?: string; submissionErrorMessage?: string; onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>; onSubmitError?: (error: unknown) => void; }
 export interface RenderedFlow { getValues(): Readonly<Record<string, string>>; destroy(): void; }
-export interface FeedbackWidget { open(): void; close(): void; hide(): void; show(): void; setTheme(theme: Theme): void; registerFlow(flow: FeedbackFlow): void; submit(input: Omit<WidgetSubmission,"metadata"|"url"|"hostToken">): Promise<void>; destroy(): void; }
+export interface FeedbackWidget { open(): void; close(): void; hide(): void; show(): void; setTheme(theme: Theme): void; setHostToken(token: string | undefined): void; registerFlow(flow: FeedbackFlow): void; submit(input: Omit<WidgetSubmission,"metadata"|"url"|"hostToken">): Promise<void>; destroy(): void; }
 
 const SENSITIVE_KEY = /(?:token|key|secret|password|code|session|credential|auth)/i;
 let renderedFlowSequence = 0;
@@ -69,9 +69,9 @@ export function init(config: WidgetConfig): FeedbackWidget {
   const root = host.attachShadow({ mode: "closed" }); const button = document.createElement("button");
   button.type = "button"; button.textContent = "Feedback"; button.setAttribute("aria-label", "Open feedback");
   button.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483647;border:0;border-radius:999px;padding:12px 16px;background:#111;color:#fff;cursor:pointer";
-  root.append(button); document.body.append(host); let open = false; const flows = new Map<string, FeedbackFlow>();
+  root.append(button); document.body.append(host); let open = false; let hostToken = config.hostToken; const flows = new Map<string, FeedbackFlow>();
   const sync = () => { button.textContent = open ? "Close feedback" : "Feedback"; button.setAttribute("aria-expanded", String(open)); };
   button.onclick = () => { open = !open; sync(); }; sync();
   window.dispatchEvent(new CustomEvent("feedback:ready", { detail: { boardId: config.boardId } }));
-  return { open: () => { open = true; sync(); }, close: () => { open = false; sync(); }, hide: () => { host.hidden = true; }, show: () => { host.hidden = false; }, setTheme: (theme) => host.dataset.theme = theme, registerFlow: (flow) => { if (!flow.id || flows.has(flow.id)) throw new Error("Flow id must be unique."); flows.set(flow.id, flow); }, async submit(input) { const allowed = config.allowedCategories ?? []; if (!allowed.includes(input.category)) throw new Error("Feedback category is not allowed."); await config.submit({ ...input, metadata: allowMetadata(config.metadata, config.metadataAllowlist), url: redactUrl(location.href), hostToken: config.hostToken, consoleLogs: sanitizeConsoleLogs(input.consoleLogs ?? [], Boolean(config.consent?.consoleLogs), config.capturePolicy), screenshot: config.consent?.screenshot ? (input.screenshot ?? await captureScreenshot(config)) : undefined }); }, destroy: () => host.remove() };
+  return { open: () => { open = true; sync(); }, close: () => { open = false; sync(); }, hide: () => { host.hidden = true; }, show: () => { host.hidden = false; }, setTheme: (theme) => host.dataset.theme = theme, setHostToken: (token) => { hostToken = token; }, registerFlow: (flow) => { if (!flow.id || flows.has(flow.id)) throw new Error("Flow id must be unique."); flows.set(flow.id, flow); }, async submit(input) { const allowed = config.allowedCategories ?? []; if (!allowed.includes(input.category)) throw new Error("Feedback category is not allowed."); const submissionToken = config.getHostToken ? await config.getHostToken() : hostToken; await config.submit({ ...input, metadata: allowMetadata(config.metadata, config.metadataAllowlist), url: redactUrl(location.href), hostToken: submissionToken, consoleLogs: sanitizeConsoleLogs(input.consoleLogs ?? [], Boolean(config.consent?.consoleLogs), config.capturePolicy), screenshot: config.consent?.screenshot ? (input.screenshot ?? await captureScreenshot(config)) : undefined }); }, destroy: () => host.remove() };
 }
