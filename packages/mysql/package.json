@@ -1,0 +1,12 @@
+{
+  "name": "@userr/mysql",
+  "version": "0.1.0",
+  "description": "MySQL and PlanetScale schema foundation for Userr.",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist", "migrations"],
+  "dependencies": { "@userr/core": "0.1.0" },
+  "devDependencies": { "typescript": "^5.8.3" },
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "npm run build && node --test dist/**/*.test.js", "typecheck": "tsc -p tsconfig.json --noEmit" }
+}

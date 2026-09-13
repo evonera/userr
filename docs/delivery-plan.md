@@ -131,13 +131,14 @@ Spec: [integration-catalog](./integration-catalog.md) + [webhook-protocol](./web
 Gate: 3+ real user asks or a maintainer dogfoods it. Spec: [adapter-matrix](./adapter-matrix.md)
 (Tiers 1–2) + [feature-catalog](./feature-catalog.md) (Surveys/Support rows).
 
-- [ ] 7.1 Supabase adapter (SQL migrations + RLS + private Realtime channel
-  authorization) with documented vector/realtime behavior. In progress on
-  `phase-7-supabase`; CLI-generated Supabase routes are intentionally deferred
-  until the backend distribution has adoption evidence.
-- [ ] 7.2 SQLite (Turso/D1) / MySQL (PlanetScale) only with lexical fallback
-  for dedup and honest polling story. SQLite/Turso work uses FTS5 plus
-  normalized-title matching; it cannot claim portable vector parity.
+- [x] 7.1 Supabase adapter (SQL migrations + RLS + private Realtime channel
+  authorization) with documented vector/realtime behavior. CLI-generated
+  Supabase routes remain intentionally deferred until adoption evidence exists.
+- [~] 7.2 SQLite (Turso/D1) / MySQL (PlanetScale) with lexical fallback and an
+  honest polling story. SQLite/libSQL repository parity is shipped with FTS5 +
+  normalized-title matching and passes the shared contract suite. MySQL's
+  InnoDB/`FULLTEXT` schema foundation is shipped; it cannot claim repository or
+  portable vector parity until it passes that same suite.
 - [ ] 7.3 Surveys/outbound (NPS/CSAT, targeting, frequency caps), then help
   center/support, MCP server, mobile SDKs, multi-brand, custom domains, RTL,
   plugin SDK — each behind its own adoption signal.
