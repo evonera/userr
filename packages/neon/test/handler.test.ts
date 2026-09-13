@@ -238,6 +238,25 @@ describe("request handler", () => {
       method: "POST",
       body: { boardId: board.id, hostToken, title: "Nope", category: "feature" },
     }))).status).toBe(404);
+
+    const failingFingerprint = createRequestHandler({
+      db,
+      identify: async () => null,
+      widget: {
+        secret,
+        networkFingerprint: async () => {
+          throw new Error("internal proxy signing key leaked");
+        },
+      },
+    });
+    const fingerprintFailure = await failingFingerprint(request("/widget/items", {
+      method: "POST",
+      body: { boardId: board.id, hostToken, title: "Nope", category: "feature" },
+    }));
+    expect(fingerprintFailure.status).toBe(500);
+    expect(await fingerprintFailure.json()).toEqual({
+      error: "Widget submission could not be authorized.",
+    });
   });
 
   test("moderator paths fail closed without role resolution", async () => {
