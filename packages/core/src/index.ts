@@ -5,3 +5,4 @@ export * from "./webhooks.js";
 export * from "./imports.js";
 export * from "./embeddings.js";
 export * from "./ai.js";
+export * from "./widget-security.js";

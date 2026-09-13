@@ -12,6 +12,7 @@ test("browser IIFE keeps submission data inside the host privacy boundary", asyn
     const browserBundle = (window as unknown as { Feedback: { bootstrap(config: unknown): unknown } }).Feedback;
     (window as unknown as { submission?: unknown; Feedback: unknown }).Feedback = browserBundle.bootstrap({
       boardId: "public-board",
+      hostToken: "host-signed-token",
       allowedCategories: ["bug"],
       metadata: { plan: "pro", token: "host-secret" },
       metadataAllowlist: ["plan"],
@@ -27,6 +28,7 @@ test("browser IIFE keeps submission data inside the host privacy boundary", asyn
     return (window as unknown as { submission: { metadata: unknown; url: string; consoleLogs: string[] } }).submission;
   });
   expect(submission.metadata).toEqual({ plan: "pro" });
+  expect((submission as typeof submission & { hostToken: string }).hostToken).toBe("host-signed-token");
   expect(submission.url).toContain("token=%5BREDACTED%5D");
   expect(submission.url).toContain("view=public");
   expect(submission.consoleLogs).toEqual([]);
