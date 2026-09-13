@@ -291,7 +291,12 @@ export function createRequestHandler(
         const body = await readBody(req);
         const boardId = str(body.boardId, "boardId");
         const hostToken = str(body.hostToken, "hostToken");
-        const networkFingerprint = await options.widget.networkFingerprint(req);
+        let networkFingerprint: string;
+        try {
+          networkFingerprint = await options.widget.networkFingerprint(req);
+        } catch {
+          return failure("Widget submission could not be authorized.", 500);
+        }
         const authorization = await authorizeWidgetSubmission({
           token: hostToken,
           secret: options.widget.secret,
