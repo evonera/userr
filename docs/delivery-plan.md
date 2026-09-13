@@ -113,7 +113,8 @@ Spec: [feature-catalog](./feature-catalog.md) (Capture row); references: BugDrop
   contract with all-or-nothing denial semantics, refreshable browser token
   forwarding, URL redaction, and Chromium privacy tests are shipped; concrete
   Neon/Postgres limiter storage and a guarded `POST /widget/items` host route
-  are shipped. Convex limiter storage and its host route wiring remain incomplete.
+  are shipped. Convex-native atomic limiter storage is also shipped; its host
+  route wiring remains incomplete.
 
 ## Phase 6 — Intelligence, integrations, and site
 
