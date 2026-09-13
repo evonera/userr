@@ -112,7 +112,8 @@ Spec: [feature-catalog](./feature-catalog.md) (Capture row); references: BugDrop
   privacy tests. Portable token signing/verification, an atomic dual-limit host
   contract with all-or-nothing denial semantics, refreshable browser token
   forwarding, URL redaction, and Chromium privacy tests are shipped; concrete
-  backend limiter storage/wiring remains incomplete.
+  Neon/Postgres limiter storage is shipped. Convex limiter storage and host route
+  wiring remain incomplete.
 
 ## Phase 6 — Intelligence, integrations, and site
 

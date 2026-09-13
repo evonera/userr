@@ -29,7 +29,8 @@ API keys, or customer secrets.
 - `@userr/neon`: shipped parity — Drizzle schema + committed migrations,
   transactional repository, `toNextJsHandler` routes (GET/POST/PATCH/DELETE)
   with visibility gating (`canReadBoard`, fail-closed) and rule-code statuses;
-  its webhook outbox has bounded retry and delivery observability.
+  its webhook outbox has bounded retry and delivery observability. Its widget
+  limiter atomically checks and increments subject/network fixed-window counters.
 - `@userr/react`: presentational surfaces (board/detail/comments/roadmap/
   changelog/dialog/atoms plus triage, moderation, merge review, and release
   publishing surfaces over backend-agnostic views; split data layer (`/convex`

@@ -18,6 +18,7 @@ export {
   type ProcessOutboxOptions,
 } from "./repository.js";
 export { verifyWebhookSignature } from "@userr/core";
+export { createPostgresRateLimiter, type PostgresRateLimiterOptions } from "./rate-limiter.js";
 export {
   createRequestHandler,
   toNextJsHandler,

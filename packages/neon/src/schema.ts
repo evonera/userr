@@ -228,6 +228,12 @@ export const deliveries = pgTable(
   ],
 );
 
+export const rateLimitCounters = pgTable("rate_limit_counters", {
+  key: text("key").primaryKey(),
+  windowStart: bigint("window_start", { mode: "number" }).notNull(),
+  count: integer("count").notNull().default(0),
+});
+
 export type Schema = {
   boards: typeof boards;
   items: typeof items;
@@ -240,4 +246,5 @@ export type Schema = {
   webhooks: typeof webhooks;
   deliveries: typeof deliveries;
   blockedActors: typeof blockedActors;
+  rateLimitCounters: typeof rateLimitCounters;
 };
