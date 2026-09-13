@@ -51,7 +51,10 @@ testable in every adapter.
   `@userr/widget` or its browser bundle.
 - Widget browser tests: `@playwright/test` is development-only and runs Chromium
   against the built IIFE in CI; the browser binary is installed during CI and is
-  not part of the published package.
+  not part of the published package. Local browser testing is explicit:
+  `npx playwright install chromium`, then
+  `npm run test:e2e --workspace=@userr/widget`. The default `npm test` remains
+  runnable after a clean dependency install without downloading a browser.
 - Generated email notifications: `resend` is an optional, host-installed
   dependency used only by the CLI's server-only notification scaffold. The
   host owns its API key, verified sender, recipient data, and delivery policy;

@@ -16,5 +16,6 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm test
+      - run: npm run test:e2e --workspace=@userr/widget
       - run: npm run typecheck
       - run: npm run userr -- init --dry-run --backend convex --framework next
