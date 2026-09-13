@@ -57,6 +57,13 @@ test("repository persists board, item, listing, and audited state changes", asyn
   assert.equal((await repo.listChangelog({ boardId: board.id, limit: 10 })).items[0]?.id, release.id);
   const lane = await repo.saveLane({ boardId: board.id, name: "Next", states: ["open"], order: 1 });
   assert.equal((await repo.listLanes({ boardId: board.id }))[0]?.id, lane.id);
+  await repo.reportItem({ itemId: duplicate.id, actorId: "alice", reason: "review" });
+  assert.equal((await repo.listItems({ boardId: board.id, moderation: "pending", limit: 10 })).items[0]?.id, duplicate.id);
+  await repo.reviewItem({ itemId: duplicate.id, decision: "approved", actorId: "moderator" });
+  await repo.blockActor({ boardId: board.id, actorId: "spammer" });
+  assert.equal(await repo.isBlocked({ boardId: board.id, actorId: "spammer" }), true);
+  await repo.unblockActor({ boardId: board.id, actorId: "spammer" });
+  assert.equal(await repo.isBlocked({ boardId: board.id, actorId: "spammer" }), false);
   await repo.setState({ itemId: created.id, state: "open", actorId: "moderator" });
   assert.equal((await repo.listItems({ boardId: board.id, limit: 10 })).items[0]?.state, "open");
   const events = await client.execute({ sql: "select type from events where item_id = ? order by created_at", args: [created.id] });
