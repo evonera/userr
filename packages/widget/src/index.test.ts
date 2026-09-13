@@ -37,6 +37,11 @@ test("element context fallback produces queryable selectors for leading digits",
   const context = elementContext(element)!;
   assert.equal(dom.window.document.querySelector(context.selector), element);
 });
+test("privacy masks support detached documents without a browsing context", () => {
+  const dom = new JSDOM(); const detached = dom.window.document.implementation.createHTMLDocument(); detached.body.innerHTML = '<input type="password">'; const input = detached.querySelector("input")!;
+  input.getBoundingClientRect = () => ({ x: 1, y: 2, width: 3, height: 4, top: 2, right: 4, bottom: 6, left: 1, toJSON: () => ({}) });
+  assert.deepEqual(collectPrivacyMasks(detached), [{ x: 1, y: 2, width: 3, height: 4 }]);
+});
 test("flows resolve conditions and reject incomplete or ambiguous schemas", () => {
   const flow = { id: "bug", fields: [{ id: "title", label: "Title", required: true }, { id: "steps", label: "Steps", required: true, when: (values: Record<string, unknown>) => values.reproducible === true }] };
   assert.deepEqual(validateFlow(flow, { title: "Broken", reproducible: false }).missing, []);
