@@ -316,7 +316,7 @@ export function createRequestHandler(
             : failure("Widget host token is invalid.", 401);
         }
         const category = str(body.category, "category");
-        const kinds = { bug: "bug", feature: "idea", question: "support" } as const;
+        const kinds = { bug: "bug", feature: "idea", question: "feedback" } as const;
         if (!Object.hasOwn(kinds, category)) {
           return failure("category must be bug, feature, or question.", 400);
         }

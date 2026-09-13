@@ -83,11 +83,23 @@ describe("Convex widget host handler", () => {
     const item = await t.query(api.items.get, { itemId: id });
     expect(item?.item).toMatchObject({ authorId: "visitor-1", kind: "idea" });
     const denied = await submit(); expect(denied.status).toBe(429); expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
+
+    const questionToken = await signWidgetToken(secret, { version: 1, boardId, subject: "visitor-2", nonce: "nonce-2", issuedAt: now, expiresAt: now + 60_000 });
+    const question = await handler(new Request("http://host.test/api/userr/widget", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ boardId, hostToken: questionToken, title: "How does this work?", category: "question" }) }));
+    expect(question.status).toBe(201);
+    const questionId = ((await question.json()) as { id: string }).id;
+    expect((await t.query(api.items.get, { itemId: questionId }))?.item.kind).toBe("feedback");
   });
 
   test("sanitizes host callback failures", async () => {
     const handler = createWidgetHostHandler({ secret: "convex-widget-secret-with-at-least-32-bytes", networkFingerprint: async () => { throw new Error("proxy secret"); }, consumeAllOrNothing: async () => ({ allowed: true }), createItem: async () => { throw new Error("database secret"); } });
     const response = await handler(new Request("http://host.test/widget", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ boardId: "b", hostToken: "bad", title: "T", category: "bug" }) }));
     expect(response.status).toBe(500); expect(await response.text()).not.toContain("proxy secret");
+
+    const now = Date.now(); const secret = "convex-widget-secret-with-at-least-32-bytes";
+    const token = await signWidgetToken(secret, { version: 1, boardId: "b", subject: "visitor", nonce: "nonce", issuedAt: now, expiresAt: now + 60_000 });
+    const failingLimiter = createWidgetHostHandler({ secret, networkFingerprint: async () => "hash", consumeAllOrNothing: async () => { throw new Error("database connection secret"); }, createItem: async () => ({}) });
+    const limiterResponse = await failingLimiter(new Request("http://host.test/widget", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ boardId: "b", hostToken: token, title: "T", category: "bug" }) }));
+    expect(limiterResponse.status).toBe(500); expect(await limiterResponse.text()).not.toContain("database connection secret");
   });
 });
