@@ -184,6 +184,10 @@ export function createRepository(client: SqliteClient) {
     async blockActor(input: { boardId: string; actorId: string; reason?: string }): Promise<void> { await client.execute({ sql: "insert into blocked_actors (board_id, actor_id, reason, created_at) values (?, ?, ?, ?) on conflict(board_id, actor_id) do update set reason = excluded.reason", args: [input.boardId, input.actorId, input.reason ?? null, Date.now()] }); },
     async unblockActor(input: { boardId: string; actorId: string }): Promise<void> { await client.execute({ sql: "delete from blocked_actors where board_id = ? and actor_id = ?", args: [input.boardId, input.actorId] }); },
     async isBlocked(input: { boardId: string; actorId: string }): Promise<boolean> { return !!(await one(client, { sql: "select 1 from blocked_actors where board_id = ? and actor_id = ?", args: [input.boardId, input.actorId] })); },
+    async subscribe(input: { itemId: string; actorId: string; notifyComments?: boolean; notifyStatusChanges?: boolean }): Promise<void> {
+      await client.execute({ sql: "insert into subscriptions (item_id, actor_id, notify_comments, notify_status_changes, created_at) values (?, ?, ?, ?, ?) on conflict(item_id, actor_id) do update set notify_comments = excluded.notify_comments, notify_status_changes = excluded.notify_status_changes", args: [input.itemId, input.actorId, input.notifyComments === false ? 0 : 1, input.notifyStatusChanges === false ? 0 : 1, Date.now()] });
+    },
+    async unsubscribe(input: { itemId: string; actorId: string }): Promise<void> { await client.execute({ sql: "delete from subscriptions where item_id = ? and actor_id = ?", args: [input.itemId, input.actorId] }); },
     async castVote(input: { itemId: string; actorId: string }): Promise<{ added: boolean; voteCount: number }> {
       return write(client, async (tx) => {
         const row = (await tx.execute({ sql: "select board_id, vote_count from items where id = ?", args: [input.itemId] })).rows[0];
