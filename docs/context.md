@@ -14,7 +14,10 @@ API keys, or customer secrets.
   `ITEM_STATES` + `EMBEDDING_DIMENSIONS` contract constants, and the shared
   conformance suite (12 steps, self-validated against an in-memory adapter).
   `FeedbackRepository` covers boards/items, vote/unvote, setState (merged is
-  merge-op-only), merge, events, changelog, and lanes.
+  merge-op-only), merge, events, changelog, lanes, and webhook delivery.
+  Its import preview/mapping utilities preserve physical CSV row numbers, and
+  its embedding boundary reports a safe fallback reason rather than blocking
+  lexical duplicate matching.
 - `@userr/convex`: headless reference — boards/items/comments/subscriptions/
   embeddings/changelog/roadmap with cursor pagination (`convex-helpers`),
   idempotent votes, atomic merges, tombstoned comments (depth ≤ 5), lexical
@@ -22,15 +25,21 @@ API keys, or customer secrets.
   via convex-test (1 deployment-gated vector skip); `./test` register helper.
 - `@userr/neon`: shipped parity — Drizzle schema + committed migrations,
   transactional repository, `toNextJsHandler` routes (GET/POST/PATCH/DELETE)
-  with visibility gating (`canReadBoard`, fail-closed) and rule-code statuses.
+  with visibility gating (`canReadBoard`, fail-closed) and rule-code statuses;
+  its webhook outbox has bounded retry and delivery observability.
 - `@userr/react`: presentational surfaces (board/detail/comments/roadmap/
-  changelog/dialog/atoms) over backend-agnostic views; split data layer
-  (`/convex` hooks + `/rest` client); messages dict; 8 smoke tests.
+  changelog/dialog/atoms plus triage, moderation, merge review, and release
+  publishing surfaces over backend-agnostic views; split data layer (`/convex`
+  hooks + `/rest` client); messages dict; widget launcher wrapper.
+- `@userr/widget`: framework-agnostic, Shadow-DOM launcher with an explicit
+  consent/metadata boundary, URL redaction, controlled feedback flows, and a
+  browser IIFE distribution. Screenshot annotation and storage are not built.
 - `@userr/cli`: `init`, `add` (both backends, RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
-- No Supabase, widget, capture, admin triage, webhook outbox,
-  or external integration implementation exists yet. Webhook tables open
-  Phase 4; tags/API keys are explicitly deferred (see delivery-plan).
+- No Supabase, external provider plugin, static stack-picker site, or semantic
+  vector worker exists yet. Phase 6 has started with portable import and
+  embedding-fallback utilities; its remaining deliverables stay unchecked in
+  `delivery-plan.md`.
 
 ## Decisions that must not drift
 
