@@ -24,11 +24,18 @@ test("capture helpers redact and bound host data", () => {
   assert.deepEqual(sanitizeConsoleLogs(["aaaa", "bbbb", "cccc"], true, { maxConsoleTotalChars: 6 }), ["bb", "cccc"]);
 });
 test("capture context finds declared components, source, and sensitive masks", () => {
-  const dom = new JSDOM('<main data-feedback-component="Page"><section data-feedback-component="Billing"><input id="card" autocomplete="cc-number" data-feedback-source="src/Billing.tsx:42"></section></main>');
+  const dom = new JSDOM('<main data-feedback-component="Page"><section data-feedback-component="Billing"><input id="card" autocomplete="billing cc-number" data-feedback-source="src/Billing.tsx:42"><secure-field></secure-field></section></main>');
   const input = dom.window.document.querySelector("input")!;
   input.getBoundingClientRect = () => ({ x: 10, y: 20, width: 200, height: 30, top: 20, right: 210, bottom: 50, left: 10, toJSON: () => ({}) });
-  assert.deepEqual(collectPrivacyMasks(dom.window.document), [{ x: 10, y: 20, width: 200, height: 30 }]);
+  const shadowInput = dom.window.document.querySelector("secure-field")!.attachShadow({ mode: "open" }).appendChild(dom.window.document.createElement("input")); shadowInput.autocomplete = "section-login current-password"; shadowInput.getBoundingClientRect = () => ({ x: 5, y: 6, width: 70, height: 20, top: 6, right: 75, bottom: 26, left: 5, toJSON: () => ({}) });
+  assert.deepEqual(collectPrivacyMasks(dom.window.document), [{ x: 10, y: 20, width: 200, height: 30 }, { x: 5, y: 6, width: 70, height: 20 }]);
   assert.deepEqual(elementContext(input), { selector: "#card", componentStack: ["Billing", "Page"], source: { file: "src/Billing.tsx", line: 42 } });
+});
+test("element context fallback produces queryable selectors for leading digits", () => {
+  const dom = new JSDOM('<div id="2024-report"></div>'); const element = dom.window.document.querySelector("div")!;
+  Object.defineProperty(dom.window.CSS, "escape", { value: undefined, configurable: true });
+  const context = elementContext(element)!;
+  assert.equal(dom.window.document.querySelector(context.selector), element);
 });
 test("flows resolve conditions and reject incomplete or ambiguous schemas", () => {
   const flow = { id: "bug", fields: [{ id: "title", label: "Title", required: true }, { id: "steps", label: "Steps", required: true, when: (values: Record<string, unknown>) => values.reproducible === true }] };
