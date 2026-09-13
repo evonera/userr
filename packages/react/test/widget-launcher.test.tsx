@@ -19,7 +19,8 @@ describe("WidgetLauncher", () => {
 describe("widget privacy helpers", () => {
   test("allowlists metadata, redacts URLs, and requires log consent", () => {
     expect(allowMetadata({ plan: "pro", email: "secret@example.com" }, ["plan"])).toEqual({ plan: "pro" });
-    expect(redactUrl("https://app.example.test/x?token=abc&view=all")).toContain("token=[REDACTED]");
+    expect(redactUrl("https://app.example.test/x?token=abc&view=all")).toContain("token=%5BREDACTED%5D");
+    expect(redactUrl("https://user:pass@app.example.test/x?access_token=abc#token=xyz")).not.toContain("abc");
     expect(sanitizeConsoleLogs(["secret"], false)).toEqual([]);
   });
 });

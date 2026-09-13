@@ -11,6 +11,10 @@ export function WidgetLauncher({ config }: { config: WidgetConfig }) {
   useEffect(() => {
     widget.current = init(config);
     return () => { widget.current?.destroy(); widget.current = null; };
-  }, [config]);
+  // Config is deliberately captured at mount: changing an inline object on a
+  // normal parent render must not reset a user who has opened the launcher.
+  // Hosts that need a new policy should unmount/remount explicitly.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   return null;
 }
