@@ -42,6 +42,8 @@ API keys, or customer secrets.
   covered in Chromium. Browser-side screenshot annotation/redaction produces a
   finalized host-stored PNG, and it can forward a short-lived host token without
   seeing the signing secret. Userr does not provide attachment storage or upload.
+  The Neon handler can accept those tokens at `POST /widget/items`, applies the
+  atomic database limiter, and maps server-approved widget categories to items.
 - `@userr/cli`: `init`, `add` (Convex, Neon, and Supabase; RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
 - `@userr/supabase`: a demand-gated Supabase distribution of the tested

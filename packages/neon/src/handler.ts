@@ -1,10 +1,12 @@
 import {
+  authorizeWidgetSubmission,
   assertTransition,
   ITEM_STATES,
   type Delivery,
   type FeedbackRepository,
   type ItemState,
   type Role,
+  type RateLimitRequest,
   type StatusTransition,
   type WebhookEventType,
 } from "@userr/core";
@@ -22,6 +24,7 @@ import {
   unsubscribe,
   type Database,
 } from "./repository.js";
+import { createPostgresRateLimiter } from "./rate-limiter.js";
 
 export interface HandlerOptions {
   db: Database;
@@ -40,6 +43,15 @@ export interface HandlerOptions {
     actorId: string | null,
     board: { id: string; visibility: string },
   ) => boolean | Promise<boolean>;
+  /** Optional host-owned widget submission boundary. The secret and network
+   * fingerprint callback must stay server-side; fingerprints should be keyed
+   * hashes rather than raw IP addresses. */
+  widget?: {
+    secret: string;
+    networkFingerprint: (req: Request) => string | Promise<string>;
+    subjectLimit?: Omit<RateLimitRequest, "key">;
+    networkLimit?: Omit<RateLimitRequest, "key">;
+  };
 }
 
 const MODERATOR_ROLES: readonly Role[] = ["moderator", "admin", "owner"];
@@ -50,6 +62,14 @@ function json(data: unknown, status = 200): Response {
 
 function failure(message: string, status: number): Response {
   return json({ error: message }, status);
+}
+
+function rateLimited(retryAfterMs?: number): Response {
+  const headers = new Headers();
+  if (retryAfterMs !== undefined) {
+    headers.set("retry-after", String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
+  }
+  return Response.json({ error: "Widget submission rate limit exceeded." }, { status: 429, headers });
 }
 
 function toStatus(error: unknown): Response {
@@ -112,6 +132,7 @@ function str(value: unknown, name: string): string {
  *   POST   /boards                  create board (authenticated)
  *   GET    /items?boardId&state&limit&cursor
  *   POST   /items                   create item (authenticated)
+ *   POST   /widget/items            create item (host-token guarded)
  *   GET    /items/:id               single item
  *   POST   /items/:id/vote          vote (authenticated)
  *   DELETE /items/:id/vote          unvote (authenticated)
@@ -145,6 +166,9 @@ export function createRequestHandler(
   options: HandlerOptions,
 ): (req: Request) => Promise<Response> {
   const repo: FeedbackRepository = createRepository(options.db);
+  const widgetLimiter = options.widget
+    ? createPostgresRateLimiter(options.db)
+    : null;
 
   async function actor(req: Request): Promise<string> {
     let actorId: string | null = null;
@@ -247,11 +271,59 @@ export function createRequestHandler(
         "webhooks",
         "moderation",
         "blocks",
+        "widget",
       ].includes(s),
     );
     const parts = anchor === -1 ? [] : segments.slice(anchor);
 
     try {
+      // POST /widget/items — anonymous browser submission authorized by a
+      // short-lived, board-scoped host token and atomic subject/network limits.
+      if (
+        req.method === "POST" &&
+        parts[0] === "widget" &&
+        parts[1] === "items" &&
+        parts.length === 2
+      ) {
+        if (!options.widget || !widgetLimiter) {
+          return failure("Widget submissions are not configured.", 404);
+        }
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        const hostToken = str(body.hostToken, "hostToken");
+        const networkFingerprint = await options.widget.networkFingerprint(req);
+        const authorization = await authorizeWidgetSubmission({
+          token: hostToken,
+          secret: options.widget.secret,
+          boardId,
+          networkFingerprint,
+          limiter: widgetLimiter,
+          ...(options.widget.subjectLimit
+            ? { subjectLimit: options.widget.subjectLimit }
+            : {}),
+          ...(options.widget.networkLimit
+            ? { networkLimit: options.widget.networkLimit }
+            : {}),
+        });
+        if (!authorization.allowed) {
+          return authorization.reason === "rate_limited"
+            ? rateLimited(authorization.retryAfterMs)
+            : failure("Widget host token is invalid.", 401);
+        }
+        const category = str(body.category, "category");
+        const kinds = { bug: "bug", feature: "idea", question: "support" } as const;
+        if (!Object.hasOwn(kinds, category)) {
+          return failure("category must be bug, feature, or question.", 400);
+        }
+        const item = await repo.createItem({
+          boardId,
+          title: str(body.title, "title"),
+          body: typeof body.body === "string" ? body.body : "",
+          kind: kinds[category as keyof typeof kinds],
+          authorId: authorization.claims.subject,
+        });
+        return json(item, 201);
+      }
       // GET /boards?slug=
       if (req.method === "GET" && parts[0] === "boards") {
         const slug = query.get("slug");

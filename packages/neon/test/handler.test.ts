@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
+import { signWidgetToken } from "@userr/core";
 
 import { createRequestHandler } from "../src/handler.js";
 import { setupDatabase } from "./setup.js";
@@ -170,6 +171,73 @@ describe("request handler", () => {
       }),
     );
     expect(bad.status).toBe(400);
+  });
+
+  test("widget submissions use host tokens and atomic database limits", async () => {
+    const { db, close: closeDb } = await setupDatabase();
+    close = closeDb;
+    const secret = "widget-route-secret-with-at-least-32-bytes";
+    const handle = createRequestHandler({
+      db,
+      identify: async (req) => req.headers.get("x-actor"),
+      widget: {
+        secret,
+        networkFingerprint: async () => "host-hash:network-a",
+        subjectLimit: { limit: 1, windowMs: 60_000 },
+        networkLimit: { limit: 5, windowMs: 60_000 },
+      },
+    });
+    const board = (await (
+      await handle(request("/boards", {
+        method: "POST",
+        actor: "owner",
+        body: { slug: "widget", name: "Widget", allowedKinds: ["idea"] },
+      }))
+    ).json()) as { id: string };
+    const now = Date.now();
+    const hostToken = await signWidgetToken(secret, {
+      version: 1,
+      boardId: board.id,
+      subject: "visitor-123",
+      nonce: "nonce-123",
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    });
+    const submit = () => handle(request("/widget/items", {
+      method: "POST",
+      body: { boardId: board.id, hostToken, title: "Keyboard mode", body: "Please add it.", category: "feature" },
+    }));
+    const created = await submit();
+    expect(created.status).toBe(201);
+    expect(await created.json()).toMatchObject({ authorId: "visitor-123", kind: "idea" });
+    const denied = await submit();
+    expect(denied.status).toBe(429);
+    const retryAfter = Number(denied.headers.get("retry-after"));
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+
+    const wrongBoardToken = await signWidgetToken(secret, {
+      version: 1,
+      boardId: "another-board",
+      subject: "visitor-456",
+      nonce: "nonce-456",
+      issuedAt: now,
+      expiresAt: now + 60_000,
+    });
+    const invalid = await handle(request("/widget/items", {
+      method: "POST",
+      body: { boardId: board.id, hostToken: wrongBoardToken, title: "Nope", category: "feature" },
+    }));
+    expect(invalid.status).toBe(401);
+
+    const unconfigured = createRequestHandler({
+      db,
+      identify: async () => null,
+    });
+    expect((await unconfigured(request("/widget/items", {
+      method: "POST",
+      body: { boardId: board.id, hostToken, title: "Nope", category: "feature" },
+    }))).status).toBe(404);
   });
 
   test("moderator paths fail closed without role resolution", async () => {
