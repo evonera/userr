@@ -39,7 +39,9 @@
 - runtime: none (BugDrop/Reflet discipline; React is peer-only for wrapper)
 - build: `esbuild` or `tsdown`, `typescript`, versioned `widget.v*.js` output
 - capture: `html-to-image` or `@zumer/snapdom` (DOM→canvas, no getDisplayMedia prompt)
-- dev/test: `vitest`, `@playwright/test`, `wrangler` only if Cloudflare preview used
+- dev/test: `jsdom@^30.0.1` + `@types/jsdom@^27.0.0` for DOM renderer
+  integration tests; `@playwright/test` for real-browser coverage; `wrangler`
+  only if Cloudflare preview is used. None ship in the IIFE bundle.
 
 ## @userr/cli
 - `cac` or `commander`, `prompts` (init wizard: backend/framework/auth/UI-style/board-path),
