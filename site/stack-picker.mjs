@@ -16,6 +16,7 @@ function mount() {
   };
   form.addEventListener("change", update); update();
   copy.addEventListener("click", async () => {
+    copy.disabled = true;
     try {
       if (!navigator.clipboard) throw new Error("Clipboard is unavailable.");
       await navigator.clipboard.writeText(output.value);
@@ -23,7 +24,7 @@ function mount() {
     } catch {
       copy.textContent = "Copy unavailable — select command";
     }
-    setTimeout(() => { copy.textContent = "Copy command"; }, 1800);
+    setTimeout(() => { copy.textContent = "Copy command"; copy.disabled = false; }, 1800);
   });
 }
 if (typeof document !== "undefined") mount();
