@@ -65,8 +65,16 @@ test("flow renderer updates conditions, reports missing values, and submits host
 test("flow renderer prevents concurrent submissions and reports host failures", async () => {
   const dom = new JSDOM("<main></main>"); const container = dom.window.document.querySelector("main") as HTMLElement; let attempts = 0; let rejectSubmission: ((reason?: unknown) => void) | undefined; let reported: unknown;
   renderFlow(container, { id: "question", fields: [{ id: "title", label: "Title" }] }, { initialValues: { title: "Help" }, onSubmit: () => { attempts += 1; return new Promise((_, reject) => { rejectSubmission = reject; }); }, onSubmitError: (error) => { reported = error; } });
-  const form = container.querySelector("form") as HTMLFormElement; const button = form.querySelector("button") as HTMLButtonElement; form.requestSubmit(); form.dispatchEvent(new dom.window.SubmitEvent("submit", { bubbles: true, cancelable: true }));
+  const form = container.querySelector("form") as HTMLFormElement; const button = form.querySelector('button[type="submit"]') as HTMLButtonElement; form.requestSubmit(); form.dispatchEvent(new dom.window.SubmitEvent("submit", { bubbles: true, cancelable: true }));
   assert.equal(attempts, 1); assert.equal(button.disabled, true); assert.equal(form.getAttribute("aria-busy"), "true");
   const failure = new Error("host unavailable"); rejectSubmission?.(failure); await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(reported, failure); assert.equal(button.disabled, false); assert.equal(form.hasAttribute("aria-busy"), false); assert.equal(form.querySelector('[role="alert"]:not([hidden])')?.textContent, "Feedback could not be submitted. Try again.");
+});
+test("multi-screen flows validate each screen before navigation", async () => {
+  const dom = new JSDOM("<main></main>"); const container = dom.window.document.querySelector("main")!; let submitted: unknown;
+  renderFlow(container, { id: "report", screens: [{ id: "summary", title: "Summary", fields: [{ id: "title", label: "Title", required: true }] }, { id: "details", title: "Details", fields: [{ id: "body", label: "Body", required: true }] }] }, { onSubmit: (values) => { submitted = values; } });
+  const form = container.querySelector("form")!; const title = form.querySelector('[name="title"]') as HTMLInputElement; const body = form.querySelector('[name="body"]') as HTMLInputElement; const next = Array.from(form.querySelectorAll("button")).find((button) => button.textContent === "Next")!;
+  next.click(); assert.equal(title.getAttribute("aria-invalid"), "true"); assert.equal(body.closest("section")?.hidden, true);
+  title.value = "Broken"; title.dispatchEvent(new dom.window.Event("input", { bubbles: true })); next.click(); assert.equal(body.closest("section")?.hidden, false);
+  form.requestSubmit(); assert.equal(body.getAttribute("aria-invalid"), "true"); body.value = "Steps"; body.dispatchEvent(new dom.window.Event("input", { bubbles: true })); form.requestSubmit(); await Promise.resolve(); assert.deepEqual(submitted, { title: "Broken", body: "Steps" });
 });

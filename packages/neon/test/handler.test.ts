@@ -205,11 +205,11 @@ describe("request handler", () => {
     });
     const submit = () => handle(request("/widget/items", {
       method: "POST",
-      body: { boardId: board.id, hostToken, title: "Keyboard mode", body: "Please add it.", category: "feature" },
+      body: { boardId: board.id, hostToken, title: "Keyboard mode", body: "Please add it.", category: "feature", state: "shipped", labels: ["admin"] },
     }));
     const created = await submit();
     expect(created.status).toBe(201);
-    expect(await created.json()).toMatchObject({ authorId: "visitor-123", kind: "idea" });
+    expect(await created.json()).toMatchObject({ authorId: "visitor-123", kind: "idea", state: "inbox", labels: [] });
     const denied = await submit();
     expect(denied.status).toBe(429);
     const retryAfter = Number(denied.headers.get("retry-after"));
