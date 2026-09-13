@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { createClient } from "@libsql/client";
+import { runConformanceSuite, type FeedbackRepository } from "@userr/core";
 
 import { createRepository, SQLITE_MIGRATION_PATH, SQLITE_SEARCH_CAPABILITIES, toFtsQuery } from "./index.js";
 
@@ -69,5 +70,14 @@ test("repository persists board, item, listing, and audited state changes", asyn
   const events = await client.execute({ sql: "select type from events where item_id = ? order by created_at", args: [created.id] });
   const types = events.rows.map((row) => row.type);
   assert.ok(types.includes("created") && types.includes("vote_added") && types.includes("vote_removed") && types.includes("state_changed") && types.includes("merged"));
+  await close();
+});
+
+test("SQLite repository passes the shared domain conformance suite", async () => {
+  const { client, close } = await testClient("conformance");
+  const migration = await readFile(fileURLToPath(new URL("../migrations/0000_userr_schema.sql", import.meta.url)), "utf8");
+  await client.executeMultiple(migration);
+  const repository: FeedbackRepository = createRepository(client);
+  await runConformanceSuite(repository);
   await close();
 });
