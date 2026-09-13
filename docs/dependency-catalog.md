@@ -11,6 +11,9 @@
 - `convex-helpers` — `paginator` + `usePaginatedQuery` (built-in paginate does not work in components)
 - `convex-test` + `@edge-runtime/vm` — component tests
 - `openai` (optional peer) — `text-embedding-3-small` for dedup embeddings; `RESEND_API_KEY` only in host app, never component
+- `resend` (optional host dependency) — generated server-only status and
+  release-notification scaffold; the customer installs it in their app and
+  owns the API key, sender identity, recipients, and delivery policy.
 - peers: `react@^18||^19` (hooks only)
 
 ## @userr/neon (second adapter)
@@ -25,7 +28,10 @@
 - `framer-motion` — modals/dropdowns (UserCue toast IDs + StatusDropdown pattern)
 - `react-markdown + remark-gfm + rehype-highlight`, `dompurify` — post/changelog render
 - `tiptap (+starter-kit/link/mention/image/placeholder)` — admin + changelog editor (Fider/Quackback parity)
-- `@dnd-kit/*` — roadmap kanban DnD; `react-hot-toast` — toasts; `javascript-time-ago` or `dayjs` — timestamps
+- `@dnd-kit/core@^6.3.1`, `@dnd-kit/sortable@^10.0.0`, and
+  `@dnd-kit/utilities@^3.2.2` — MIT-licensed runtime drag/drop primitives for
+  the shipped roadmap kanban surface; `react-hot-toast` — toasts;
+  `javascript-time-ago` or `dayjs` — timestamps
 
 ## @userr/widget (vanilla IIFE — zero runtime deps by design)
 - runtime: none (BugDrop/Reflet discipline; React is peer-only for wrapper)

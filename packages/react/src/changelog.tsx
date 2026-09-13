@@ -1,3 +1,5 @@
+"use client";
+
 import Markdown from "react-markdown";
 
 import { cn } from "./cn.js";

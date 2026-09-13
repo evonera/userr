@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 

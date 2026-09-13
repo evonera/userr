@@ -21,6 +21,13 @@ export const itemState = v.union(
   v.literal("merged"),
 );
 
+export const moderationState = v.union(
+  v.literal("approved"),
+  v.literal("pending"),
+  v.literal("rejected"),
+  v.literal("spam"),
+);
+
 export const visibility = v.union(v.literal("public"), v.literal("private"));
 
 export const publicBoard = v.object({
@@ -51,6 +58,7 @@ export const publicItem = v.object({
   commentCount: v.number(),
   labels: v.array(v.string()),
   mergedInto: v.optional(v.id("items")),
+  moderation: v.optional(moderationState),
   context: v.optional(v.any()),
   embeddingState: v.union(
     v.literal("pending"),
@@ -137,11 +145,14 @@ export const MAX_COMMENT_LENGTH = 5_000;
  * are large, opaque, and only meaningful to `findSimilarVector`; every other
  * view serves the public shape. (Object validators reject unexpected fields,
  * so this is load-bearing, not cosmetic.)
+ *
+ * Missing moderation (pre-moderation documents) falls back to "approved" so
+ * old deployments keep reading after upgrade with no backfill step.
  */
-export function toPublicItem<T extends { embedding?: number[] }>(
+export function toPublicItem<T extends { embedding?: number[]; moderation?: string }>(
   doc: T,
-): Omit<T, "embedding"> {
+): Omit<T, "embedding"> & { moderation: string } {
   const { embedding: _embedding, ...rest } = doc;
   void _embedding;
-  return rest;
+  return { ...rest, moderation: doc.moderation ?? "approved" };
 }

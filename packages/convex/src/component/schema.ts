@@ -15,18 +15,37 @@ export default defineSchema({
     boardId: v.id("boards"), publicId: v.string(), slug: v.string(), title: v.string(), body: v.string(),
     normalizedTitle: v.string(), searchText: v.string(), kind: v.string(), state, authorId: v.string(),
     voteCount: v.number(), commentCount: v.number(), labels: v.array(v.string()), mergedInto: v.optional(v.id("items")),
+    // Optional during the Phase 4 upgrade. Run `items.backfillModeration`
+    // before enabling public traffic; all new writes set it explicitly.
+    moderation: v.optional(v.union(v.literal("approved"), v.literal("pending"), v.literal("rejected"), v.literal("spam"))),
     context: v.optional(v.any()), embedding: v.optional(v.array(v.float64())), embeddingState: v.union(v.literal("pending"), v.literal("ready"), v.literal("disabled")),
     createdAt: v.number(), updatedAt: v.number(),
   })
     .index("by_board_state", ["boardId", "state"])
+    .index("by_board_moderation_state", ["boardId", "moderation", "state"])
     .index("by_board_normalized_title", ["boardId", "normalizedTitle"])
     .index("by_merged_into", ["mergedInto"])
     .searchIndex("search", { searchField: "searchText", filterFields: ["boardId", "state"] })
     .vectorIndex("by_embedding", { vectorField: "embedding", dimensions: 1536, filterFields: ["boardId"] }),
   votes: defineTable({ itemId: v.id("items"), actorId: v.string(), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
+  blockedActors: defineTable({ boardId: v.id("boards"), actorId: v.string(), reason: v.optional(v.string()), createdAt: v.number() }).index("by_board_actor", ["boardId", "actorId"]),
   comments: defineTable({ itemId: v.id("items"), actorId: v.string(), body: v.string(), parentId: v.optional(v.id("comments")), createdAt: v.number(), updatedAt: v.number(), deletedAt: v.optional(v.number()) }).index("by_item", ["itemId"]),
   events: defineTable({ itemId: v.id("items"), type: v.string(), actorId: v.optional(v.string()), payload: v.any(), createdAt: v.number() }).index("by_item_created", ["itemId", "createdAt"]),
   subscriptions: defineTable({ itemId: v.id("items"), actorId: v.string(), notifyComments: v.optional(v.boolean()), notifyStatusChanges: v.optional(v.boolean()), createdAt: v.number() }).index("by_item_actor", ["itemId", "actorId"]),
+  webhooks: defineTable({
+    boardId: v.id("boards"), url: v.string(), secret: v.string(),
+    events: v.array(v.string()), active: v.boolean(),
+    failureCount: v.number(), lastError: v.optional(v.string()),
+    lastTriggeredAt: v.optional(v.number()), createdAt: v.number(),
+  }).index("by_board", ["boardId"]),
+  deliveries: defineTable({
+    webhookId: v.id("webhooks"), event: v.string(), payload: v.any(),
+    status: v.union(v.literal("pending"), v.literal("delivered"), v.literal("failed")),
+    attempts: v.number(), nextRetryAt: v.optional(v.number()),
+    lastError: v.optional(v.string()), deliveredAt: v.optional(v.number()),
+    leaseOwner: v.optional(v.string()), leaseExpiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index("by_webhook", ["webhookId"]).index("by_status_retry", ["status", "nextRetryAt"]),
   changelogEntries: defineTable({
     boardId: v.id("boards"), title: v.string(), slug: v.string(), body: v.string(),
     version: v.optional(v.string()), linkedItemIds: v.array(v.id("items")),

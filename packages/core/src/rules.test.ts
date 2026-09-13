@@ -3,7 +3,7 @@ import test from "node:test";
 import { assertTransition, createMergePlan, lexicalSimilarity } from "./rules.js";
 import type { FeedbackItem } from "./types.js";
 
-const item = (id: string): FeedbackItem => ({ id, boardId: "board", publicId: id, slug: id, title: "Dark mode", body: "", kind: "idea", state: "open", authorId: "a", createdAt: 1, updatedAt: 1, voteCount: 0, commentCount: 0, labels: [] });
+const item = (id: string): FeedbackItem => ({ id, boardId: "board", publicId: id, slug: id, title: "Dark mode", body: "", kind: "idea", state: "open", authorId: "a", createdAt: 1, updatedAt: 1, voteCount: 0, commentCount: 0, moderation: "approved", labels: [] });
 
 test("only configured roles can transition an item", () => {
   assert.doesNotThrow(() => assertTransition({ current: "open", next: "planned", role: "moderator", transitions: [{ from: "open", to: "planned", roles: ["moderator", "admin"] }] }));

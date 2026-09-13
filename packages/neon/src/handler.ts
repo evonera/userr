@@ -1,10 +1,12 @@
 import {
   assertTransition,
   ITEM_STATES,
+  type Delivery,
   type FeedbackRepository,
   type ItemState,
   type Role,
   type StatusTransition,
+  type WebhookEventType,
 } from "@userr/core";
 
 import {
@@ -116,6 +118,8 @@ function str(value: unknown, name: string): string {
  *   POST   /items/:id/state         transition (moderator)
  *   POST   /items/:id/merge         merge (moderator)
  *   GET    /items/:id/events        audit trail
+ *   POST   /items/:id/report        flag for review (authenticated)
+ *   POST   /items/:id/review        approve/reject/spam (moderator)
  *   GET    /items/:id/comments      list comments
  *   POST   /items/:id/comments      comment (authenticated)
  *   DELETE /comments/:id            remove comment (author or moderator)
@@ -126,6 +130,16 @@ function str(value: unknown, name: string): string {
  *   POST   /changelog               publish entry (moderator)
  *   GET    /lanes?boardId           roadmap lanes in order
  *   POST   /lanes                   save lane, id set = update (moderator)
+ *   GET    /webhooks?boardId        list webhooks, secrets masked (moderator)
+ *   POST   /webhooks                create webhook, secret once (moderator)
+ *   PATCH  /webhooks/:id            update url/events/active (moderator)
+ *   DELETE /webhooks/:id            delete webhook + deliveries (moderator)
+ *   POST   /webhooks/:id/rotate     rotate secret (moderator)
+ *   GET    /webhooks/:id/deliveries list deliveries (moderator)
+ *   GET    /moderation?boardId       pending queue (moderator)
+ *   POST   /items/bulk/state        bulk transition ≤50 (moderator)
+ *   POST   /blocks                  block actor (moderator)
+ *   DELETE /blocks?boardId&actorId  unblock actor (moderator)
  */
 export function createRequestHandler(
   options: HandlerOptions,
@@ -163,6 +177,33 @@ export function createRequestHandler(
     }
   }
 
+  /** Non-throwing moderator check for read paths. Moderators see hidden
+   *  (pending/rejected/spam) content; everyone else gets the public view. */
+  async function isModerator(req: Request, boardId: string): Promise<boolean> {
+    if (!options.resolveRole) return false;
+    try {
+      const actorId = await options.identify(req);
+      if (!actorId) return false;
+      const role = await options.resolveRole(actorId, boardId);
+      return !!role && MODERATOR_ROLES.includes(role);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Single-item read gate: hidden items 404 for non-moderators. */
+  async function visibleItem(req: Request, itemId: string) {
+    const item = await repo.findItem(itemId);
+    if (!item) return null;
+    if (
+      item.moderation !== "approved" &&
+      !(await isModerator(req, item.boardId))
+    ) {
+      return null;
+    }
+    return item;
+  }
+
   /**
    * Board visibility gate. Every board-scoped route — reads and writes —
    * passes through here: public boards are world-readable, private boards
@@ -196,9 +237,17 @@ export function createRequestHandler(
     const query = url.searchParams;
     // Route on trailing segments so any mount prefix works.
     const anchor = segments.findIndex((s) =>
-      ["boards", "items", "comments", "similar", "changelog", "lanes"].includes(
-        s,
-      ),
+      [
+        "boards",
+        "items",
+        "comments",
+        "similar",
+        "changelog",
+        "lanes",
+        "webhooks",
+        "moderation",
+        "blocks",
+      ].includes(s),
     );
     const parts = anchor === -1 ? [] : segments.slice(anchor);
 
@@ -235,12 +284,14 @@ export function createRequestHandler(
         const boardId = query.get("boardId");
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
+        const staff = await isModerator(req, boardId);
         return json(
           await repo.listItems({
             boardId,
             state: (query.get("state") as never) ?? undefined,
             limit: Math.min(Number(query.get("limit") ?? 20), 100),
             cursor: query.get("cursor") ?? undefined,
+            ...(staff ? { includeModerated: true } : {}),
           }),
         );
       }
@@ -265,7 +316,14 @@ export function createRequestHandler(
         const title = query.get("title") ?? "";
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
-        return json(await findSimilar(options.db, { boardId, title }));
+        const staff = await isModerator(req, boardId);
+        return json(
+          await findSimilar(options.db, {
+            boardId,
+            title,
+            ...(staff ? { includeModerated: true } : {}),
+          }),
+        );
       }
       // GET /changelog?boardId&limit&cursor
       if (req.method === "GET" && parts[0] === "changelog") {
@@ -286,6 +344,70 @@ export function createRequestHandler(
         if (!boardId) return failure("boardId is required.", 400);
         await requireBoard(req, boardId);
         return json(await repo.listLanes({ boardId }));
+      }
+      // GET /webhooks?boardId — moderator-gated (URLs + failure state).
+      if (req.method === "GET" && parts[0] === "webhooks" && parts.length === 1) {
+        const boardId = query.get("boardId");
+        if (!boardId) return failure("boardId is required.", 400);
+        await moderator(req, boardId);
+        return json(await repo.listWebhooks({ boardId }));
+      }
+      // POST /webhooks — moderator-gated; secret returned once.
+      if (req.method === "POST" && parts[0] === "webhooks" && parts.length === 1) {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await moderator(req, boardId);
+        const created = await repo.createWebhook({
+          boardId,
+          url: str(body.url, "url"),
+          events: Array.isArray(body.events)
+            ? (body.events.filter((e): e is WebhookEventType => typeof e === "string") as WebhookEventType[])
+            : [],
+        });
+        return json(created, 201);
+      }
+      // Webhook-scoped routes: /webhooks/:id/... (moderator of the board).
+      if (parts[0] === "webhooks" && parts[1]) {
+        const hook = await repo.getWebhook({ id: parts[1] });
+        if (!hook) return failure("Webhook not found.", 404);
+        const moderatorId = await moderator(req, hook.boardId);
+        void moderatorId;
+        if (parts[2] === "rotate" && req.method === "POST") {
+          return json(await repo.rotateWebhookSecret({ id: hook.id }));
+        }
+        if (parts[2] === "deliveries" && req.method === "GET") {
+          const status = query.get("status") as
+            | Delivery["status"]
+            | null;
+          return json(
+            await repo.listDeliveries({
+              webhookId: hook.id,
+              ...(status ? { status } : {}),
+              limit: Math.min(Number(query.get("limit") ?? 50), 200),
+            }),
+          );
+        }
+        if (parts.length === 2 && req.method === "PATCH") {
+          const body = await readBody(req);
+          await repo.updateWebhook({
+            id: hook.id,
+            ...(typeof body.url === "string" ? { url: body.url } : {}),
+            ...(Array.isArray(body.events)
+              ? {
+                  events: body.events.filter(
+                    (e): e is WebhookEventType => typeof e === "string",
+                  ),
+                }
+              : {}),
+            ...(typeof body.active === "boolean" ? { active: body.active } : {}),
+          });
+          return json({ ok: true });
+        }
+        if (parts.length === 2 && req.method === "DELETE") {
+          await repo.deleteWebhook({ id: hook.id });
+          return json({ ok: true });
+        }
+        return failure("Unknown route.", 404);
       }
       // POST /changelog — moderator-gated; Phase 4's publisher calls this.
       if (req.method === "POST" && parts[0] === "changelog") {
@@ -322,10 +444,96 @@ export function createRequestHandler(
         });
         return json(lane, 201);
       }
+      // GET /moderation?boardId — pending queue (moderator).
+      if (req.method === "GET" && parts[0] === "moderation") {
+        const boardId = query.get("boardId");
+        if (!boardId) return failure("boardId is required.", 400);
+        await moderator(req, boardId);
+        return json(
+          await repo.listItems({
+            boardId,
+            moderation: "pending",
+            limit: Math.min(Number(query.get("limit") ?? 50), 100),
+            cursor: query.get("cursor") ?? undefined,
+          }),
+        );
+      }
+      // POST /items/bulk/state — bulk transition (moderator). Matched before
+      // item-scoped routes so "bulk" is never treated as an item id.
+      if (
+        req.method === "POST" &&
+        parts[0] === "items" &&
+        parts[1] === "bulk" &&
+        parts[2] === "state"
+      ) {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        const moderatorId = await moderator(req, boardId);
+        const ids = Array.isArray(body.itemIds)
+          ? body.itemIds.filter((id): id is string => typeof id === "string")
+          : [];
+        // All ids must belong to the authorized board.
+        for (const id of ids) {
+          const item = await repo.findItem(id);
+          if (!item || item.boardId !== boardId) {
+            return failure("All items must exist on this board.", 400);
+          }
+        }
+        const next = str(body.state, "state");
+        if (
+          !(ITEM_STATES as readonly string[]).includes(next) ||
+          next === "merged"
+        ) {
+          return failure(`Invalid state "${next}".`, 400);
+        }
+        if (options.transitions && options.resolveRole) {
+          const role = await options.resolveRole(moderatorId, boardId);
+          for (const id of ids) {
+            const item = (await repo.findItem(id))!;
+            assertTransition({
+              current: item.state,
+              next: next as ItemState,
+              role,
+              transitions: options.transitions,
+            });
+          }
+        }
+        return json(
+          await repo.setStateMany({
+            itemIds: ids,
+            state: next as ItemState,
+            actorId: moderatorId,
+          }),
+        );
+      }
+      // POST /blocks — block actor (moderator).
+      if (req.method === "POST" && parts[0] === "blocks") {
+        const body = await readBody(req);
+        const boardId = str(body.boardId, "boardId");
+        await moderator(req, boardId);
+        await repo.blockActor({
+          boardId,
+          actorId: str(body.actorId, "actorId"),
+          reason:
+            typeof body.reason === "string" ? body.reason : undefined,
+        });
+        return json({ ok: true });
+      }
+      // DELETE /blocks?boardId&actorId — unblock (moderator).
+      if (req.method === "DELETE" && parts[0] === "blocks") {
+        const boardId = query.get("boardId");
+        const actorId = query.get("actorId");
+        if (!boardId || !actorId) {
+          return failure("boardId and actorId are required.", 400);
+        }
+        await moderator(req, boardId);
+        await repo.unblockActor({ boardId, actorId });
+        return json({ ok: true });
+      }
       // Item-scoped routes: /items/:id/...
       if (parts[0] === "items" && parts[1]) {
         const itemId = parts[1];
-        const item = await repo.findItem(itemId);
+        const item = await visibleItem(req, itemId);
         if (!item) return failure("Feedback item not found.", 404);
         await requireBoard(req, item.boardId);
 
@@ -390,6 +598,33 @@ export function createRequestHandler(
         }
         if (parts[2] === "events" && req.method === "GET") {
           return json(await repo.listEvents({ itemId }));
+        }
+        if (parts[2] === "report" && req.method === "POST") {
+          const actorId = await actor(req);
+          const body = await readBody(req).catch(
+            (): Record<string, unknown> => ({}),
+          );
+          await repo.reportItem({
+            itemId,
+            actorId,
+            reason:
+              typeof body.reason === "string" ? body.reason : undefined,
+          });
+          return json({ ok: true });
+        }
+        if (parts[2] === "review" && req.method === "POST") {
+          const moderatorId = await moderator(req, item.boardId);
+          const body = await readBody(req);
+          const decision = str(body.decision, "decision");
+          if (!["approved", "rejected", "spam"].includes(decision)) {
+            return failure(`Invalid decision "${decision}".`, 400);
+          }
+          await repo.reviewItem({
+            itemId,
+            decision: decision as "approved" | "rejected" | "spam",
+            actorId: moderatorId,
+          });
+          return json({ ok: true });
         }
         if (parts[2] === "comments" && req.method === "GET") {
           return json(

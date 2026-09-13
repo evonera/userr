@@ -6,13 +6,17 @@ import {
   type BoardInput,
   type ChangelogEntry,
   type CursorPage,
+  type Delivery,
   type FeedbackEvent,
   type FeedbackItem,
   type FeedbackRepository,
   type ItemInput,
   type ItemState,
   type MergePlan,
+  type ModerationState,
   type RoadmapLane,
+  type Webhook,
+  type WebhookInput,
 } from "@userr/core";
 import { api } from "../src/component/_generated/api.js";
 import { setup, type TestInstance } from "./setup.js";
@@ -93,10 +97,12 @@ function convexRepository(t: TestInstance): FeedbackRepository {
       cursor?: string;
       limit: number;
       state?: ItemState;
+      moderation?: ModerationState;
     }): Promise<CursorPage<FeedbackItem>> {
       const page = (await t.query(api.items.list, {
         boardId: input.boardId as never,
-        ...(input.state ? { state: input.state } : {}),
+        ...(input.state ? { state: input.state as never } : {}),
+        ...(input.moderation ? { moderation: input.moderation as never } : {}),
         paginationOpts: { numItems: input.limit, cursor: input.cursor ?? null },
       })) as {
         page: Record<string, unknown>[];
@@ -135,6 +141,68 @@ function convexRepository(t: TestInstance): FeedbackRepository {
         state: input.state as never,
         actorId: input.actorId,
       });
+    },
+    async setStateMany(input: {
+      itemIds: readonly string[];
+      state: ItemState;
+      actorId: string;
+    }) {
+      return (await t.mutation(api.items.setStateMany, {
+        itemIds: input.itemIds as never,
+        state: input.state as never,
+        actorId: input.actorId,
+      })) as { updated: number };
+    },
+    async reportItem(input: {
+      itemId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.report, {
+        itemId: input.itemId as never,
+        actorId: input.actorId,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+    },
+    async reviewItem(input: {
+      itemId: string;
+      decision: Exclude<ModerationState, "pending">;
+      actorId: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.review, {
+        itemId: input.itemId as never,
+        decision: input.decision as never,
+        actorId: input.actorId,
+      });
+    },
+    async blockActor(input: {
+      boardId: string;
+      actorId: string;
+      reason?: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.block, {
+        boardId: input.boardId as never,
+        actorId: input.actorId,
+        ...(input.reason ? { reason: input.reason } : {}),
+      });
+    },
+    async unblockActor(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<void> {
+      await t.mutation(api.moderation.unblock, {
+        boardId: input.boardId as never,
+        actorId: input.actorId,
+      });
+    },
+    async isBlocked(input: {
+      boardId: string;
+      actorId: string;
+    }): Promise<boolean> {
+      return (await t.query(api.moderation.isBlocked, {
+        boardId: input.boardId as never,
+        actorId: input.actorId,
+      })) as boolean;
     },
     async merge(plan: MergePlan): Promise<void> {
       await t.mutation(api.items.merge, {
@@ -223,6 +291,109 @@ function convexRepository(t: TestInstance): FeedbackRepository {
         void _creationTime;
         return { id: _id, ...rest } as RoadmapLane;
       });
+    },
+    async createWebhook(input: WebhookInput) {
+      const created = (await t.mutation(api.webhooks.create, {
+        boardId: input.boardId as never,
+        url: input.url,
+        events: [...input.events] as never,
+      })) as { id: string; secret: string };
+      const hooks = (await t.query(api.webhooks.list, {
+        boardId: input.boardId as never,
+      })) as (Record<string, unknown> & { _id: string })[];
+      const doc = hooks.find((hook) => hook._id === created.id);
+      if (!doc) throw new Error("webhook creation failed");
+      const { _id, _creationTime, ...rest } = doc;
+      void _creationTime;
+      return {
+        webhook: { id: _id, ...rest } as Webhook,
+        secret: created.secret,
+      };
+    },
+    async listWebhooks(input: { boardId: string }) {
+      const hooks = (await t.query(api.webhooks.list, {
+        boardId: input.boardId as never,
+      })) as Record<string, unknown>[];
+      return hooks.map((doc) => {
+        const { _id, _creationTime, ...rest } = doc;
+        void _creationTime;
+        return { id: _id, ...rest } as Webhook;
+      });
+    },
+    async getWebhook(input: { id: string }) {
+      const doc = (await t.query(api.webhooks.get, {
+        id: input.id as never,
+      })) as Record<string, unknown> | null;
+      if (!doc) return null;
+      const { _id, _creationTime, ...rest } = doc;
+      void _creationTime;
+      return { id: _id, ...rest } as Webhook;
+    },
+    async updateWebhook(input: {
+      id: string;
+      url?: string;
+      events?: readonly never[];
+      active?: boolean;
+    }): Promise<void> {
+      await t.mutation(api.webhooks.update, {
+        id: input.id as never,
+        ...(input.url !== undefined ? { url: input.url } : {}),
+        ...(input.events !== undefined ? { events: input.events } : {}),
+        ...(input.active !== undefined ? { active: input.active } : {}),
+      });
+    },
+    async rotateWebhookSecret(input: { id: string }) {
+      return (await t.mutation(api.webhooks.rotateSecret, {
+        id: input.id as never,
+      })) as { secret: string };
+    },
+    async deleteWebhook(input: { id: string }): Promise<void> {
+      await t.mutation(api.webhooks.remove, { id: input.id as never });
+    },
+    async listDeliveries(input: {
+      webhookId?: string;
+      status?: Delivery["status"];
+      limit?: number;
+    }) {
+      const rows = (await t.query(api.webhooks.deliveries, {
+        ...(input.webhookId ? { webhookId: input.webhookId as never } : {}),
+        ...(input.status ? { status: input.status as never } : {}),
+        ...(input.limit ? { limit: input.limit } : {}),
+      })) as Record<string, unknown>[];
+      return rows.map((doc) => {
+        const { _id, _creationTime, ...rest } = doc;
+        void _creationTime;
+        return { id: _id, ...rest } as Delivery;
+      });
+    },
+    async recordDeliveryOutcome(input: {
+      deliveryId: string;
+      ok: boolean;
+      error?: string;
+      at?: number;
+      leaseOwner?: string;
+    }) {
+      void input.at;
+      const deliveries = (await t.query(api.webhooks.deliveries, {
+        limit: 200,
+      })) as (Delivery & { _id: string })[];
+      const before = deliveries.find((d) => d._id === input.deliveryId);
+      if (!before) throw new Error("delivery must exist");
+      await t.mutation(api.webhooks.recordOutcome, {
+        deliveryId: input.deliveryId as never,
+        ok: input.ok,
+        ...(input.error ? { error: input.error } : {}),
+        ...(input.leaseOwner ? { leaseOwner: input.leaseOwner } : {}),
+      });
+      const after = (
+        (await t.query(api.webhooks.deliveries, { limit: 200 })) as (Delivery & {
+          _id: string;
+        })[]
+      ).find((d) => d._id === input.deliveryId);
+      if (!after) throw new Error("delivery must exist");
+      const { _id, ...rest } = after;
+      void _id;
+      return rest;
     },
   };
 }

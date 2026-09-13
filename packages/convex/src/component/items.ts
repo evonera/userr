@@ -2,6 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { paginator } from "convex-helpers/server/pagination";
 import { v } from "convex/values";
 
+import { VOTE_MILESTONES } from "@userr/core";
 import { mutation, query } from "./_generated/server.js";
 import type { MutationCtx, QueryCtx } from "./_generated/server.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
@@ -10,12 +11,15 @@ import {
   itemState,
   MAX_BODY_LENGTH,
   MAX_TITLE_LENGTH,
+  moderationState,
   normalizeTitle,
   pageOfItems,
   publicItem,
   toPublicItem,
 } from "./model.js";
 import schema from "./schema.js";
+import { enqueueEvent } from "./webhooks.js";
+import { requireUnblocked } from "./moderation.js";
 
 function checkTitle(title: string): string {
   const trimmed = title.trim();
@@ -47,23 +51,64 @@ export const list = query({
   args: {
     boardId: v.id("boards"),
     state: v.optional(itemState),
+    moderation: v.optional(moderationState),
+    // Public reads hide rejected/spam/pending by default; admin surfaces
+    // (triage, moderation queue) pass includeModerated through host wrappers.
+    includeModerated: v.optional(v.boolean()),
     paginationOpts: paginationOptsValidator,
   },
   returns: pageOfItems,
   handler: async (ctx, args) => {
     const base = paginator(ctx.db, schema).query("items");
-    const scoped = args.state
-      ? base.withIndex("by_board_state", (q) =>
-          q.eq("boardId", args.boardId).eq("state", args.state!),
-        )
-      : base.withIndex("by_board_state", (q) =>
-          q.eq("boardId", args.boardId),
-        );
+    // Apply moderation before pagination. Filtering a completed page could
+    // produce empty/short pages and permanently skip approved items.
+    const moderation = args.includeModerated ? args.moderation : (args.moderation ?? "approved");
+    const scoped = moderation
+      ? base.withIndex("by_board_moderation_state", (q) => {
+          const byModeration = q.eq("boardId", args.boardId).eq("moderation", moderation);
+          return args.state ? byModeration.eq("state", args.state) : byModeration;
+        })
+      : args.state
+        ? base.withIndex("by_board_state", (q) =>
+            q.eq("boardId", args.boardId).eq("state", args.state!),
+          )
+        : base.withIndex("by_board_state", (q) => q.eq("boardId", args.boardId));
     // Newest first. Merged items stay in the listing with `state: "merged"`
     // and a `mergedInto` pointer: triage needs them, and public views filter
-    // `state !== "merged"` (or query a specific state outright).
+    // `state !== "merged"` (or query a specific state outright). The
+    // moderation queue is `moderation: "pending"`; its filter is part of the
+    // indexed query above so cursors remain accurate.
     const result = await scoped.order("desc").paginate(args.paginationOpts);
     return { ...result, page: result.page.map(toPublicItem) };
+  },
+});
+
+/**
+ * Upgrade migration for component deployments created before moderation was
+ * introduced. Run repeatedly with the returned cursor until `isDone` before
+ * switching public traffic to the moderation-aware index. Legacy rows were
+ * publicly visible before the feature, so their explicit safe equivalent is
+ * `approved`.
+ */
+export const backfillModeration = mutation({
+  args: {
+    boardId: v.id("boards"),
+    paginationOpts: paginationOptsValidator,
+  },
+  returns: v.object({ updated: v.number(), continueCursor: v.string(), isDone: v.boolean() }),
+  handler: async (ctx, args) => {
+    const result = await ctx.db
+      .query("items")
+      .withIndex("by_board_state", (q) => q.eq("boardId", args.boardId))
+      .paginate(args.paginationOpts);
+    let updated = 0;
+    for (const item of result.page) {
+      if (item.moderation === undefined) {
+        await ctx.db.patch(item._id, { moderation: "approved" });
+        updated += 1;
+      }
+    }
+    return { updated, continueCursor: result.continueCursor, isDone: result.isDone };
   },
 });
 
@@ -77,6 +122,7 @@ export const listTop = query({
     boardId: v.id("boards"),
     state: v.optional(itemState),
     limit: v.optional(v.number()),
+    includeModerated: v.optional(v.boolean()),
   },
   returns: v.array(publicItem),
   handler: async (ctx, args) => {
@@ -91,6 +137,11 @@ export const listTop = query({
       .collect();
     return items
       .filter((item) => !item.mergedInto)
+      .filter(
+        (item) =>
+          args.includeModerated ||
+          (item.moderation ?? "approved") === "approved",
+      )
       .sort((a, b) => b.voteCount - a.voteCount || b.createdAt - a.createdAt)
       .slice(0, limit)
       .map(toPublicItem);
@@ -98,7 +149,11 @@ export const listTop = query({
 });
 
 export const get = query({
-  args: { itemId: v.id("items"), viewerActorId: v.optional(v.string()) },
+  args: {
+    itemId: v.id("items"),
+    viewerActorId: v.optional(v.string()),
+    includeModerated: v.optional(v.boolean()),
+  },
   returns: v.union(
     v.object({
       item: publicItem,
@@ -110,6 +165,9 @@ export const get = query({
   handler: async (ctx, args) => {
     const item = await ctx.db.get(args.itemId);
     if (!item) return null;
+    if (!args.includeModerated && (item.moderation ?? "approved") !== "approved") {
+      return null;
+    }
     let viewerHasVoted = false;
     let viewerIsSubscribed = false;
     if (args.viewerActorId) {
@@ -150,6 +208,7 @@ export const create = mutation({
     }
     const title = checkTitle(args.title);
     const body = checkBody(args.body);
+    await requireUnblocked(ctx, args.boardId, args.actorId);
     const now = Date.now();
     const id = await ctx.db.insert("items", {
       boardId: args.boardId,
@@ -165,6 +224,7 @@ export const create = mutation({
       voteCount: 0,
       commentCount: 0,
       labels: [],
+      moderation: "approved",
       context: args.context,
       embeddingState: "pending",
       createdAt: now,
@@ -181,6 +241,10 @@ export const create = mutation({
       actorId: args.actorId,
       payload: {},
       createdAt: now,
+    });
+    await enqueueEvent(ctx, args.boardId, "v1.post.created", {
+      itemId: id,
+      title,
     });
     return id;
   },
@@ -212,7 +276,68 @@ export const setState = mutation({
       payload: { from: item.state, to: args.state },
       createdAt: now,
     });
+    await enqueueEvent(ctx, item.boardId, "v1.post.status_changed", {
+      itemId: args.itemId,
+      from: item.state,
+      to: args.state,
+    });
     return null;
+  },
+});
+
+/**
+ * Bulk transition for triage (close spam, plan a batch). All-or-nothing:
+ * every id is validated before any write, so a single bad id rejects the
+ * whole batch with nothing persisted. Capped at 50 per call.
+ */
+export const setStateMany = mutation({
+  args: {
+    itemIds: v.array(v.id("items")),
+    state: itemState,
+    actorId: v.string(),
+  },
+  returns: v.object({ updated: v.number() }),
+  handler: async (ctx, args) => {
+    if (args.state === "merged") {
+      throw new Error(
+        'State "merged" is set only by the merge operation, which establishes mergedInto.',
+      );
+    }
+    if (args.itemIds.length === 0) return { updated: 0 };
+    if (args.itemIds.length > 50) {
+      throw new Error("Bulk updates are limited to 50 items.");
+    }
+    // Deduplicate first: repeating an id must produce one audit event and one
+    // notification, not N.
+    const ids = [...new Set(args.itemIds)];
+    const items: Doc<"items">[] = [];
+    for (const itemId of ids) {
+      const item = await requireItem(ctx, itemId);
+      if (item.mergedInto) {
+        throw new Error(`Item ${itemId} is merged and cannot change state.`);
+      }
+      items.push(item);
+    }
+    const now = Date.now();
+    let updated = 0;
+    for (const item of items) {
+      if (item.state === args.state) continue;
+      await ctx.db.patch(item._id, { state: args.state, updatedAt: now });
+      await ctx.db.insert("events", {
+        itemId: item._id,
+        type: "state_changed",
+        actorId: args.actorId,
+        payload: { from: item.state, to: args.state },
+        createdAt: now,
+      });
+      await enqueueEvent(ctx, item.boardId, "v1.post.status_changed", {
+        itemId: item._id,
+        from: item.state,
+        to: args.state,
+      });
+      updated += 1;
+    }
+    return { updated };
   },
 });
 
@@ -222,6 +347,13 @@ export const vote = mutation({
   handler: async (ctx, args) => {
     const item = await requireItem(ctx, args.itemId);
     if (item.mergedInto) throw new Error("Feedback item is unavailable.");
+    await requireUnblocked(ctx, item.boardId, args.actorId);
+    if (
+      item.moderation === "rejected" ||
+      item.moderation === "spam"
+    ) {
+      throw new Error("Feedback item is unavailable.");
+    }
     const prior = await ctx.db
       .query("votes")
       .withIndex("by_item_actor", (q) =>
@@ -246,6 +378,12 @@ export const vote = mutation({
       payload: {},
       createdAt: now,
     });
+    if (VOTE_MILESTONES.includes(item.voteCount + 1)) {
+      await enqueueEvent(ctx, item.boardId, "v1.vote.milestone", {
+        itemId: args.itemId,
+        voteCount: item.voteCount + 1,
+      });
+    }
     return { added: true, voteCount: item.voteCount + 1 };
   },
 });
@@ -368,6 +506,10 @@ export const merge = mutation({
       payload: { targetId: args.targetId, reason: args.reason },
       createdAt: now,
     });
+    await enqueueEvent(ctx, source.boardId, "v1.post.merged", {
+      sourceId: args.sourceId,
+      targetId: args.targetId,
+    });
     return null;
   },
 });
@@ -383,6 +525,7 @@ export const findSimilar = query({
     boardId: v.id("boards"),
     title: v.string(),
     limit: v.optional(v.number()),
+    includeModerated: v.optional(v.boolean()),
   },
   returns: v.object({
     exact: v.union(v.id("items"), v.null()),
@@ -407,7 +550,12 @@ export const findSimilar = query({
         q.eq("boardId", args.boardId).eq("normalizedTitle", normalized),
       )
       .take(5);
-    const exactHit = exactCandidates.find((item) => !item.mergedInto);
+    const exactHit = exactCandidates.find(
+      (item) =>
+        !item.mergedInto &&
+        (args.includeModerated ||
+          (item.moderation ?? "approved") === "approved"),
+    );
     const exact = exactHit ? exactHit._id : null;
     const candidates = await ctx.db
       .query("items")
@@ -418,6 +566,12 @@ export const findSimilar = query({
     const similar: { id: Id<"items">; title: string; voteCount: number }[] = [];
     for (const candidate of candidates) {
       if (candidate.mergedInto) continue;
+      if (
+        !args.includeModerated &&
+        (candidate.moderation ?? "approved") !== "approved"
+      ) {
+        continue;
+      }
       if (exact !== null && candidate._id === exact) continue;
       similar.push({
         id: candidate._id,

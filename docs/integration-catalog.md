@@ -31,7 +31,7 @@ stripe, teams, trello, zapier, zendesk) + Reflet (GitHub two-way + Slack/Discord
 - **Intercom / Zendesk / Freshdesk / Help Scout** — support-queue capture (Autopilot pattern: scan closed tickets → suggested posts) + link tickets without leaving helpdesk.
 - **HubSpot / Salesforce** — vote on behalf of contact/deal, revenue sort ("sort posts by $"), contact/company sync.
 - **Segment** — user sync for segmentation; **PostHog/GA** — portal analytics.
-- **Zapier / Make / n8n (native apps, not just webhook)** — trigger `post.created/status_changed`, actions create/update post; Quackback ships all three.
+- **Zapier / Make / n8n (native apps, not just webhook)** — trigger `v1.post.created` / `v1.post.status_changed`, actions create/update post; Quackback ships all three.
 - **OIDC / Okta / Entra ID / Google Workspace (SSO)** — BetterAuth `sso` package pattern (OIDC discovery + SAML, verified domains, claim mapping); admin-surface only.
 
 ## P2 — later / signal-gated

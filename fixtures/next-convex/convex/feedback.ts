@@ -82,6 +82,23 @@ export const setItemState = mutation({
   },
 });
 
+// Administrative upgrade endpoint. Component functions are invoked only from
+// host functions; authenticate and authorize here before delegating the
+// paginated data migration to the isolated component.
+export const backfillModeration = mutation({
+  args: {
+    boardId: v.string(),
+    paginationOpts: v.any(),
+  },
+  handler: async (ctx, args) => {
+    await requireModerator(config, args.boardId);
+    return await ctx.runMutation(components.userr.items.backfillModeration, {
+      boardId: args.boardId as never,
+      paginationOpts: args.paginationOpts,
+    });
+  },
+});
+
 export const seed = mutation({
   args: {},
   handler: async (ctx) => {
