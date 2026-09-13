@@ -3,6 +3,8 @@
  * admin UI and supply both credentials and a guarded fetch implementation.
  * Userr deliberately never reads environment variables or owns provider keys.
  */
+import { assertSafeWebhookUrl } from "@userr/core";
+
 export type IntegrationId = "slack" | "discord" | "github" | "linear";
 export type IntegrationDirection = "out" | "in" | "two-way";
 export type ConfigField = { key: string; label: string; secret?: boolean; required?: boolean; help?: string };
@@ -24,6 +26,7 @@ function success(response: TransportResponse, name: string): void {
   if (response.status < 200 || response.status >= 300) throw new Error(`${name} request failed with ${response.status}.`);
 }
 function safeWebhookUrl(value: string): URL {
+  assertSafeWebhookUrl(value);
   let url: URL;
   try { url = new URL(value); } catch { throw new Error("Webhook URL must be a valid HTTPS URL."); }
   if (url.protocol !== "https:" || url.username || url.password) throw new Error("Webhook URL must be HTTPS and must not contain credentials.");
@@ -36,10 +39,10 @@ function githubRepository(value: string): string {
 }
 
 export const integrations: readonly IntegrationManifest[] = [
-  { id: "slack", name: "Slack", direction: "two-way", events: ["post.created", "post.status_changed", "comment.created", "vote.milestone"], fields: [{ key: "webhookUrl", label: "Incoming webhook URL", secret: true, required: true }, { key: "signingSecret", label: "Signing secret", secret: true }], setupSteps: ["Create an incoming webhook for a channel.", "Store its URL in your host secret store.", "Verify signed slash-command requests before calling the host intake flow."] },
-  { id: "discord", name: "Discord", direction: "two-way", events: ["post.created", "post.status_changed", "vote.milestone"], fields: [{ key: "webhookUrl", label: "Channel webhook URL", secret: true, required: true }], setupSteps: ["Create a Discord channel webhook.", "Store its URL in your host secret store.", "Use the returned message ID to PATCH status and vote updates."] },
-  { id: "github", name: "GitHub Issues", direction: "two-way", events: ["post.created", "post.status_changed"], fields: [{ key: "repository", label: "Repository (owner/name)", required: true }, { key: "token", label: "Installation token", secret: true, required: true }], setupSteps: ["Install your GitHub App for the target repository.", "Mint installation tokens in the host only.", "Verify GitHub webhook signatures before importing an issue update."] },
-  { id: "linear", name: "Linear", direction: "two-way", events: ["post.created", "post.status_changed"], fields: [{ key: "teamId", label: "Team ID", required: true }, { key: "apiKey", label: "API key", secret: true, required: true }], setupSteps: ["Create a Linear OAuth app or personal integration.", "Store the token in the host secret store.", "Verify inbound webhooks and map Linear workflows to Userr states."] },
+  { id: "slack", name: "Slack", direction: "two-way", events: ["v1.post.created", "v1.post.status_changed", "v1.comment.created", "v1.vote.milestone"], fields: [{ key: "webhookUrl", label: "Incoming webhook URL", secret: true, required: true }, { key: "signingSecret", label: "Signing secret", secret: true }], setupSteps: ["Create an incoming webhook for a channel.", "Store its URL in your host secret store.", "Verify signed slash-command requests before calling the host intake flow."] },
+  { id: "discord", name: "Discord", direction: "two-way", events: ["v1.post.created", "v1.post.status_changed", "v1.vote.milestone"], fields: [{ key: "webhookUrl", label: "Channel webhook URL", secret: true, required: true }], setupSteps: ["Create a Discord channel webhook.", "Store its URL in your host secret store.", "Use the returned message ID to PATCH status and vote updates."] },
+  { id: "github", name: "GitHub Issues", direction: "two-way", events: ["v1.post.created", "v1.post.status_changed"], fields: [{ key: "repository", label: "Repository (owner/name)", required: true }, { key: "token", label: "Installation token", secret: true, required: true }], setupSteps: ["Install your GitHub App for the target repository.", "Mint installation tokens in the host only.", "Verify GitHub webhook signatures before importing an issue update."] },
+  { id: "linear", name: "Linear", direction: "two-way", events: ["v1.post.created", "v1.post.status_changed"], fields: [{ key: "teamId", label: "Team ID", required: true }, { key: "apiKey", label: "API key", secret: true, required: true }], setupSteps: ["Create a Linear OAuth app or personal integration.", "Store the token in the host secret store.", "Verify inbound webhooks and map Linear workflows to Userr states."] },
 ];
 
 export const slack = {

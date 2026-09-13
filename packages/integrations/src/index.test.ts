@@ -17,6 +17,7 @@ test("chat adapters use a host-owned transport and retain Discord message ids", 
   assert.match(seen[2].url, /messages\/msg_1$/);
   assert.deepEqual(slack.parseSlashCommand({ text: "Dark mode", user_id: "U1" }), { title: "Dark mode", actorId: "U1" });
   await assert.rejects(() => slack.notify(transport, "http://hooks.slack.test/a", { title: "Dark mode", url: "https://app.test/f/dark", state: "open", votes: 2 }), /HTTPS/);
+  await assert.rejects(() => slack.notify(transport, "https://127.0.0.1/hook", { title: "Dark mode", url: "https://app.test/f/dark", state: "open", votes: 2 }), /private|loopback/i);
 });
 
 test("tracker adapters return links and fail closed on malformed inbound payloads", async () => {
