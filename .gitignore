@@ -4,5 +4,7 @@ dist/
 .env
 coverage/
 .DS_Store
+playwright-report/
+test-results/
 *.local
 convex/_generated/
