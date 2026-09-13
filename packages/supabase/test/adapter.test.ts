@@ -81,5 +81,6 @@ describe("Supabase adapter", () => {
     expect(rlsSql).toContain("realtime.messages.extension = 'broadcast'");
     expect(rlsSql).toContain("realtime.topic()");
     expect(rlsSql).toContain("userr_realtime_memberships");
+    expect(rlsSql).toContain('drop policy if exists "authenticated feedback broadcast"');
   });
 });

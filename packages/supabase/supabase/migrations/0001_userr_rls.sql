@@ -16,6 +16,7 @@ alter table public.userr_realtime_memberships enable row level security;
 drop policy if exists "public boards are readable" on public.boards;
 drop policy if exists "public board items are readable" on public.items;
 drop policy if exists "actors only write their votes" on public.votes;
+drop policy if exists "authenticated feedback broadcast" on realtime.messages;
 drop policy if exists "members read their own realtime membership" on public.userr_realtime_memberships;
 drop policy if exists "members receive private feedback broadcasts" on realtime.messages;
 drop policy if exists "members send private feedback broadcasts" on realtime.messages;
