@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import {
   ITEM_STATES,
+  assertSafeWebhookUrl,
+  generateWebhookSecret,
   normalizeText,
+  secretPreview,
   type Board,
   type BoardInput,
   type ChangelogInput,
@@ -13,6 +16,8 @@ import {
   type MergePlan,
   type LaneInput,
   type ModerationState,
+  type WebhookEventType,
+  type WebhookInput,
 } from "@userr/core";
 
 export type SqliteValue = string | number | bigint | null;
@@ -69,6 +74,9 @@ function item(row: Record<string, unknown>): FeedbackItem {
     labels: parse<readonly string[]>(row.labels, []),
     ...(row.context ? { context: parse<NonNullable<FeedbackItem["context"]>>(row.context, {}) } : {}),
   };
+}
+function webhook(row: Record<string, unknown>) {
+  return { id: String(row.id), boardId: String(row.board_id), url: String(row.url), secretPreview: secretPreview(String(row.secret)), events: parse<readonly WebhookEventType[]>(row.events, []), active: number(row.active) === 1, failureCount: number(row.failure_count), ...(row.last_error ? { lastError: String(row.last_error) } : {}), ...(row.last_triggered_at ? { lastTriggeredAt: number(row.last_triggered_at) } : {}) };
 }
 
 async function one(client: SqliteClient, statement: SqliteStatement): Promise<Record<string, unknown> | null> {
@@ -188,6 +196,20 @@ export function createRepository(client: SqliteClient) {
       await client.execute({ sql: "insert into subscriptions (item_id, actor_id, notify_comments, notify_status_changes, created_at) values (?, ?, ?, ?, ?) on conflict(item_id, actor_id) do update set notify_comments = excluded.notify_comments, notify_status_changes = excluded.notify_status_changes", args: [input.itemId, input.actorId, input.notifyComments === false ? 0 : 1, input.notifyStatusChanges === false ? 0 : 1, Date.now()] });
     },
     async unsubscribe(input: { itemId: string; actorId: string }): Promise<void> { await client.execute({ sql: "delete from subscriptions where item_id = ? and actor_id = ?", args: [input.itemId, input.actorId] }); },
+    async createWebhook(input: WebhookInput) {
+      assertSafeWebhookUrl(input.url); const secret = generateWebhookSecret(); const now = Date.now();
+      const row = { id: id("hook"), boardId: input.boardId, url: input.url, secretPreview: secretPreview(secret), events: input.events, active: true, failureCount: 0 };
+      await client.execute({ sql: "insert into webhooks (id, board_id, url, secret, events, active, failure_count, created_at) values (?, ?, ?, ?, ?, 1, 0, ?)", args: [row.id, row.boardId, row.url, secret, json(row.events), now] });
+      return { webhook: row, secret };
+    },
+    async listWebhooks(input: { boardId: string }) { return (await client.execute({ sql: "select * from webhooks where board_id = ? order by created_at", args: [input.boardId] })).rows.map(webhook); },
+    async getWebhook(input: { id: string }) { const row = await one(client, { sql: "select * from webhooks where id = ?", args: [input.id] }); return row ? webhook(row) : null; },
+    async updateWebhook(input: { id: string; url?: string; events?: readonly WebhookEventType[]; active?: boolean }): Promise<void> {
+      if (input.url) assertSafeWebhookUrl(input.url); const current = await one(client, { sql: "select * from webhooks where id = ?", args: [input.id] }); if (!current) throw new Error("Webhook not found.");
+      await client.execute({ sql: "update webhooks set url = ?, events = ?, active = ? where id = ?", args: [input.url ?? String(current.url), input.events ? json(input.events) : String(current.events), input.active === undefined ? number(current.active) : input.active ? 1 : 0, input.id] });
+    },
+    async rotateWebhookSecret(input: { id: string }) { const secret = generateWebhookSecret(); const result = await client.execute({ sql: "update webhooks set secret = ? where id = ?", args: [secret, input.id] }); if (!result.rowsAffected) throw new Error("Webhook not found."); return { secret }; },
+    async deleteWebhook(input: { id: string }): Promise<void> { await client.execute({ sql: "delete from webhooks where id = ?", args: [input.id] }); },
     async castVote(input: { itemId: string; actorId: string }): Promise<{ added: boolean; voteCount: number }> {
       return write(client, async (tx) => {
         const row = (await tx.execute({ sql: "select board_id, vote_count from items where id = ?", args: [input.itemId] })).rows[0];
