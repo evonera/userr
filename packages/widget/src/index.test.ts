@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allowMetadata, captureScreenshot, redactUrl, sanitizeConsoleLogs, validateCapturePolicy } from "./index.js";
+import { allowMetadata, captureScreenshot, redactUrl, sanitizeConsoleLogs, validateCapturePolicy, validateFlow } from "./index.js";
 
 test("capture requires explicit consent and bounded host retention", () => {
   assert.deepEqual(sanitizeConsoleLogs(["one"], false), []);
@@ -20,4 +20,10 @@ test("capture helpers redact and bound host data", () => {
   assert.deepEqual(allowMetadata({ plan: "pro", token: "secret" }, ["plan"]), { plan: "pro" });
   assert.match(redactUrl("https://user:pass@example.test/a?token=secret&view=all"), /token=%5BREDACTED%5D/);
   assert.deepEqual(sanitizeConsoleLogs(["abcdef", "uvwxyz"], true, { maxConsoleEntries: 1, maxConsoleChars: 3 }), ["uvw"]);
+});
+test("flows resolve conditions and reject incomplete or ambiguous schemas", () => {
+  const flow = { id: "bug", fields: [{ id: "title", label: "Title", required: true }, { id: "steps", label: "Steps", required: true, when: (values: Record<string, unknown>) => values.reproducible === true }] };
+  assert.deepEqual(validateFlow(flow, { title: "Broken", reproducible: false }).missing, []);
+  assert.deepEqual(validateFlow(flow, { title: "", reproducible: true }).missing, ["title", "steps"]);
+  assert.throws(() => validateFlow({ id: "bad", fields: [{ id: "x", label: "X" }, { id: "x", label: "Y" }] }, {}), /unique/);
 });

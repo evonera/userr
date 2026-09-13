@@ -14,6 +14,7 @@ export interface WidgetConfig {
 export interface WidgetSubmission { title: string; body: string; category: "bug" | "feature" | "question"; metadata: Metadata; url: string; screenshot?: Blob; consoleLogs?: string[]; }
 export interface FlowField { id: string; label: string; required?: boolean; when?: (values: Record<string, unknown>) => boolean; }
 export interface FeedbackFlow { id: string; fields: readonly FlowField[]; }
+export interface FlowValidation { activeFields: readonly FlowField[]; missing: readonly string[]; }
 export interface FeedbackWidget { open(): void; close(): void; hide(): void; show(): void; setTheme(theme: Theme): void; registerFlow(flow: FeedbackFlow): void; submit(input: Omit<WidgetSubmission,"metadata"|"url">): Promise<void>; destroy(): void; }
 
 const SENSITIVE_KEY = /(?:token|key|secret|password|code|session|credential|auth)/i;
@@ -23,6 +24,8 @@ export function sanitizeConsoleLogs(entries: readonly string[], consent: boolean
 /** Capture must have a positive host-enforced retention duration. */
 export function validateCapturePolicy(consent: CaptureConsent | undefined, policy: CapturePolicy | undefined): void { if (!(consent?.screenshot || consent?.consoleLogs)) return; const retentionMs = policy?.retentionMs; if (!Number.isSafeInteger(retentionMs) || !retentionMs || retentionMs <= 0) throw new Error("Capture requires a positive, host-enforced retentionMs policy."); }
 export async function captureScreenshot(config: Pick<WidgetConfig, "consent" | "capturePolicy" | "captureScreenshot">, element?: { selector: string }): Promise<Blob | undefined> { if (!config.consent?.screenshot || !config.captureScreenshot) return undefined; return config.captureScreenshot({ masks: config.capturePolicy?.screenshotMasks ?? [], element }); }
+/** Resolves conditional fields and required values without evaluating host input as code. */
+export function validateFlow(flow: FeedbackFlow, values: Record<string, unknown>): FlowValidation { const ids = new Set<string>(); for (const field of flow.fields) { if (!field.id || ids.has(field.id)) throw new Error("Flow field ids must be unique and non-empty."); ids.add(field.id); } const activeFields = flow.fields.filter((field) => field.when?.(values) ?? true); const missing = activeFields.filter((field) => field.required && (values[field.id] === undefined || values[field.id] === null || values[field.id] === "")).map((field) => field.id); return { activeFields, missing }; }
 export function elementContext(element: Element | null): { selector: string } | undefined {
   if (!element) return undefined;
   const id = element.getAttribute("id"); if (id) return { selector: `#${CSS.escape(id)}` };
