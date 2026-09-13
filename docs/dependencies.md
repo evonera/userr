@@ -42,6 +42,9 @@ testable in every adapter.
 - Next.js installer: `next` only when generated routes are selected.
 - Postgres: Drizzle plus the customer's database driver and `pgvector`.
 - Supabase: `@supabase/supabase-js` and SQL migrations/RLS policies.
+- MySQL/PlanetScale: host-provided MySQL driver and, when repository parity is
+  built, Drizzle's MySQL dialect. The migration foundation has no runtime driver
+  dependency; it uses InnoDB `FULLTEXT` rather than a vector extension.
 - Capture: browser-only image/annotation libraries, loaded on demand.
 - Generated email notifications: `resend` is an optional, host-installed
   dependency used only by the CLI's server-only notification scaffold. The

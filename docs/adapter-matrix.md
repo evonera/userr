@@ -30,7 +30,7 @@ exists properly on Postgres — dedup quality drops everywhere else.
 | 3 | **Supabase** | Same Postgres tables, but adds RLS policies + Realtime channel (`postgres_changes`) for live votes (only non-Convex backend with true push) + `supabase/migrations/*.sql` emit + `supabase.auth.getUser()` identify. Biggest "does it work with my stack" ask after Neon. | M (mostly Neon reuse + RLS/Realtime templates) |
 | 4 | **Prisma-generic Postgres** | Same SQL as Neon, different ORM client (`prisma-adapter`-style). Needed because ~half the Next.js world is Prisma, not Drizzle. CLI `--orm prisma|drizzle` switch. | S (schema already exists, client wrapper only) |
 | 5 | **Turso / SQLite (libSQL)** | libSQL edge/local, offline-capable, cheap. No portable vector story → dedup falls back to FTS5 + normalized-title exact (document honestly). Big with indie/edge crowd. | M (vector fallback + migration dialect) |
-| 6 | **PlanetScale / MySQL (Drizzle)** | MySQL 40.5% can't be ignored; PlanetScale = serverless MySQL. No pgvector → same fallback as SQLite. Vitess branching quirks for migrations. | M |
+| 6 | **PlanetScale / MySQL (Drizzle)** | MySQL 40.5% can't be ignored; PlanetScale = serverless MySQL. The migration foundation is shipped in `@userr/mysql`; repository/CLI parity remains unclaimed. No pgvector → InnoDB FULLTEXT plus normalized-title fallback. PlanetScale safe migrations require stable unique keys. | M |
 
 ## Tier 2 — on demand (P2)
 | # | Adapter | Notes |

@@ -41,6 +41,13 @@ API keys, or customer secrets.
   Postgres repository, with full schema/RLS migrations, membership-authorized
   private Broadcast helpers, and contract-suite coverage. Its CLI installer is
   deliberately not claimed yet; see `supabase.md`.
+- `@userr/sqlite`: libSQL/SQLite repository parity with FTS5 and
+  normalized-title lexical matching; it passes the shared repository
+  conformance suite. Vector search and framework route generation remain
+  deliberately unsupported.
+- `@userr/mysql`: MySQL 8/PlanetScale migration foundation, using InnoDB and
+  `FULLTEXT` for lexical matching. It does **not** yet claim repository,
+  realtime, CLI, or conformance parity.
 
 ## Decisions that must not drift
 
@@ -70,9 +77,10 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Phase 7 Supabase work is in progress on `phase-7-supabase`; its current goal
-is the backend distribution only. SQLite/MySQL and all customer-suite modules
-remain adoption-gated and are not bundled into this PR.
+The demand-gated adapter work is split into focused PRs: Supabase and SQLite
+repository parity are shipped; the current MySQL/PlanetScale PR is migration
+foundation only. MySQL repository parity and all customer-suite modules remain
+adoption-gated and are not bundled into this PR.
 
 ## Completed (Phase 4 branch, in review)
 
