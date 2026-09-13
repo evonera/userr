@@ -135,8 +135,9 @@ Gate: 3+ real user asks or a maintainer dogfoods it. Spec: [adapter-matrix](./ad
   authorization) with documented vector/realtime behavior. In progress on
   `phase-7-supabase`; CLI-generated Supabase routes are intentionally deferred
   until the backend distribution has adoption evidence.
-- [ ] 7.2 SQLite (Turso/D1) / MySQL (PlanetScale) only with trigram fallback
-  for dedup and honest polling story.
+- [ ] 7.2 SQLite (Turso/D1) / MySQL (PlanetScale) only with lexical fallback
+  for dedup and honest polling story. SQLite/Turso work uses FTS5 plus
+  normalized-title matching; it cannot claim portable vector parity.
 - [ ] 7.3 Surveys/outbound (NPS/CSAT, targeting, frequency caps), then help
   center/support, MCP server, mobile SDKs, multi-brand, custom domains, RTL,
   plugin SDK — each behind its own adoption signal.
