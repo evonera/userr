@@ -54,4 +54,7 @@ export default defineSchema({
   roadmapLanes: defineTable({
     boardId: v.id("boards"), name: v.string(), states: v.array(v.string()), order: v.number(),
   }).index("by_board_order", ["boardId", "order"]),
+  rateLimitCounters: defineTable({
+    key: v.string(), windowStart: v.number(), expiresAt: v.number(), count: v.number(),
+  }).index("by_key", ["key"]).index("by_expires_at", ["expiresAt"]),
 });

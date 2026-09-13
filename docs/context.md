@@ -44,6 +44,8 @@ API keys, or customer secrets.
   seeing the signing secret. Userr does not provide attachment storage or upload.
   The Neon handler can accept those tokens at `POST /widget/items`, applies the
   atomic database limiter, and maps server-approved widget categories to items.
+  The Convex component provides the same all-or-nothing limiter storage contract;
+  its host wrapper still owns token verification, network hashing, and routing.
 - `@userr/cli`: `init`, `add` (Convex, Neon, and Supabase; RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
 - `@userr/supabase`: a demand-gated Supabase distribution of the tested
