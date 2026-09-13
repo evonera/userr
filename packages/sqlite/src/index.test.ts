@@ -53,6 +53,10 @@ test("repository persists board, item, listing, and audited state changes", asyn
   await repo.merge({ sourceId: created.id, targetId: duplicate.id, actorId: "moderator", mergedAt: 2, reason: "duplicate" });
   assert.equal((await repo.findCanonicalItem(created.id))?.id, duplicate.id);
   assert.equal((await repo.findItem(duplicate.id))?.voteCount, 1);
+  const release = await repo.publishChangelogEntry({ boardId: board.id, title: "Dark theme", body: "Shipped", linkedItemIds: [duplicate.id] });
+  assert.equal((await repo.listChangelog({ boardId: board.id, limit: 10 })).items[0]?.id, release.id);
+  const lane = await repo.saveLane({ boardId: board.id, name: "Next", states: ["open"], order: 1 });
+  assert.equal((await repo.listLanes({ boardId: board.id }))[0]?.id, lane.id);
   await repo.setState({ itemId: created.id, state: "open", actorId: "moderator" });
   assert.equal((await repo.listItems({ boardId: board.id, limit: 10 })).items[0]?.state, "open");
   const events = await client.execute({ sql: "select type from events where item_id = ? order by created_at", args: [created.id] });
