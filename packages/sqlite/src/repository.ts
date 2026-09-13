@@ -9,6 +9,7 @@ import {
   type FeedbackItem,
   type ItemInput,
   type ItemState,
+  type MergePlan,
   type ModerationState,
 } from "@userr/core";
 
@@ -182,6 +183,29 @@ export function createRepository(client: SqliteClient) {
         await tx.execute({ sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'vote_removed', ?, '{}', ?)", args: [id("evt"), input.itemId, input.actorId, now] });
         return { removed: true, voteCount: next };
       });
+    },
+    async merge(plan: MergePlan): Promise<void> {
+      if (plan.sourceId === plan.targetId) throw new Error("Cannot merge an item into itself.");
+      await write(client, async (tx) => {
+        const source = (await tx.execute({ sql: "select * from items where id = ?", args: [plan.sourceId] })).rows[0];
+        const target = (await tx.execute({ sql: "select * from items where id = ?", args: [plan.targetId] })).rows[0];
+        if (!source || !target) throw new Error("Feedback item not found.");
+        if (source.board_id !== target.board_id) throw new Error("Items must belong to the same board.");
+        if (source.state === "shipped" || source.state === "merged" || source.merged_into) throw new Error("Completed or canonical items cannot be merged away.");
+        if (target.state === "merged" || target.merged_into) throw new Error("Merge target must be canonical.");
+        await tx.execute({ sql: "insert or ignore into votes (item_id, actor_id, created_at) select ?, actor_id, ? from votes where item_id = ?", args: [plan.targetId, plan.mergedAt, plan.sourceId] });
+        const targetVotes = (await tx.execute({ sql: "select count(*) as count from votes where item_id = ?", args: [plan.targetId] })).rows[0];
+        await tx.execute({ sql: "update items set state = 'merged', merged_into = ?, updated_at = ? where id = ?", args: [plan.targetId, plan.mergedAt, plan.sourceId] });
+        await tx.execute({ sql: "update items set vote_count = ?, updated_at = ? where id = ?", args: [number(targetVotes?.count), plan.mergedAt, plan.targetId] });
+        await tx.execute({ sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'merged', ?, ?, ?)", args: [id("evt"), plan.sourceId, plan.actorId, json({ targetId: plan.targetId, ...(plan.reason ? { reason: plan.reason } : {}) }), plan.mergedAt] });
+      });
+    },
+    async appendEvent(event: { itemId: string; type: "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented" | "flagged" | "moderated"; actorId?: string; createdAt: number; payload: Record<string, unknown> }): Promise<void> {
+      await client.execute({ sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, ?, ?, ?, ?)", args: [id("evt"), event.itemId, event.type, event.actorId ?? null, json(event.payload), event.createdAt] });
+    },
+    async listEvents(input: { itemId: string }) {
+      const rows = (await client.execute({ sql: "select * from events where item_id = ? order by created_at, id", args: [input.itemId] })).rows;
+      return rows.map((row) => ({ id: String(row.id), itemId: String(row.item_id), type: row.type as "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented" | "flagged" | "moderated", ...(row.actor_id ? { actorId: String(row.actor_id) } : {}), createdAt: number(row.created_at), payload: parse<Record<string, unknown>>(row.payload, {}) }));
     },
   };
 }
