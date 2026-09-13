@@ -42,17 +42,17 @@ describe("rate-limit counter migrations", () => {
         VALUES ('existing', 1234, 2);
         ALTER TABLE "rate_limit_counters" ADD COLUMN "expires_at" bigint;
         UPDATE "rate_limit_counters"
-        SET "expires_at" = "window_start"
+        SET "expires_at" = 9223372036854775807
         WHERE "expires_at" IS NULL;
         ALTER TABLE "rate_limit_counters" ALTER COLUMN "expires_at" SET NOT NULL;
         CREATE INDEX "rate_limit_counters_expiry_idx"
         ON "rate_limit_counters" USING btree ("expires_at");
       `);
-      const result = await client.query<{ expires_at: number }>(
-        'SELECT "expires_at" FROM "rate_limit_counters" WHERE "key" = $1',
+      const result = await client.query<{ expires_at: string }>(
+        'SELECT "expires_at"::text AS "expires_at" FROM "rate_limit_counters" WHERE "key" = $1',
         ["existing"],
       );
-      expect(result.rows).toEqual([{ expires_at: 1234 }]);
+      expect(result.rows).toEqual([{ expires_at: "9223372036854775807" }]);
       await expect(
         client.exec(
           'INSERT INTO "rate_limit_counters" ("key", "window_start", "count", "expires_at") VALUES (\'invalid\', 0, 0, NULL)',
