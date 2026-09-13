@@ -158,6 +158,32 @@ export function createRepository(client: SqliteClient) {
         { sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'state_changed', ?, ?, ?)", args: [id("evt"), input.itemId, input.actorId, json({ from: previous.state, to: input.state }), now] },
       ], "write");
     },
+    async setStateMany(input: { itemIds: readonly string[]; state: ItemState; actorId: string }): Promise<{ updated: number }> {
+      if (!ITEM_STATES.includes(input.state) || input.state === "merged") throw new Error("Invalid state transition.");
+      const ids = [...new Set(input.itemIds)];
+      if (ids.length === 0 || ids.length > 50) throw new Error("Bulk transition requires 1 to 50 items.");
+      return write(client, async (tx) => {
+        const placeholders = ids.map(() => "?").join(",");
+        const rows = (await tx.execute({ sql: `select id, state from items where id in (${placeholders})`, args: ids })).rows;
+        if (rows.length !== ids.length) throw new Error("Feedback item not found.");
+        const now = Date.now(); let updated = 0;
+        for (const row of rows) { if (row.state === input.state) continue; updated++; await tx.execute({ sql: "update items set state = ?, updated_at = ? where id = ?", args: [input.state, now, String(row.id)] }); await tx.execute({ sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'state_changed', ?, ?, ?)", args: [id("evt"), String(row.id), input.actorId, json({ from: row.state, to: input.state }), now] }); }
+        return { updated };
+      });
+    },
+    async reportItem(input: { itemId: string; actorId: string; reason?: string }): Promise<void> {
+      const now = Date.now();
+      if (!client.batch) throw new Error("SQLite client must support transactional batch writes.");
+      await client.batch([{ sql: "update items set moderation = 'pending', updated_at = ? where id = ?", args: [now, input.itemId] }, { sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'flagged', ?, ?, ?)", args: [id("evt"), input.itemId, input.actorId, json(input.reason ? { reason: input.reason } : {}), now] }], "write");
+    },
+    async reviewItem(input: { itemId: string; decision: "approved" | "rejected" | "spam"; actorId: string }): Promise<void> {
+      const now = Date.now();
+      if (!client.batch) throw new Error("SQLite client must support transactional batch writes.");
+      await client.batch([{ sql: "update items set moderation = ?, updated_at = ? where id = ?", args: [input.decision, now, input.itemId] }, { sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'moderated', ?, ?, ?)", args: [id("evt"), input.itemId, input.actorId, json({ decision: input.decision }), now] }], "write");
+    },
+    async blockActor(input: { boardId: string; actorId: string; reason?: string }): Promise<void> { await client.execute({ sql: "insert into blocked_actors (board_id, actor_id, reason, created_at) values (?, ?, ?, ?) on conflict(board_id, actor_id) do update set reason = excluded.reason", args: [input.boardId, input.actorId, input.reason ?? null, Date.now()] }); },
+    async unblockActor(input: { boardId: string; actorId: string }): Promise<void> { await client.execute({ sql: "delete from blocked_actors where board_id = ? and actor_id = ?", args: [input.boardId, input.actorId] }); },
+    async isBlocked(input: { boardId: string; actorId: string }): Promise<boolean> { return !!(await one(client, { sql: "select 1 from blocked_actors where board_id = ? and actor_id = ?", args: [input.boardId, input.actorId] })); },
     async castVote(input: { itemId: string; actorId: string }): Promise<{ added: boolean; voteCount: number }> {
       return write(client, async (tx) => {
         const row = (await tx.execute({ sql: "select board_id, vote_count from items where id = ?", args: [input.itemId] })).rows[0];
