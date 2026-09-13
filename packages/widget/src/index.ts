@@ -2,9 +2,12 @@ export type Theme = "light" | "dark" | "system";
 export type Metadata = Record<string, string | number | boolean>;
 export interface CaptureConsent { screenshot?: boolean; consoleLogs?: boolean; }
 export interface CapturePolicy { retentionMs?: number; maxConsoleEntries?: number; maxConsoleChars?: number; screenshotMasks?: readonly { x: number; y: number; width: number; height: number }[]; }
+export interface ScreenshotCaptureInput { masks: readonly { x: number; y: number; width: number; height: number }[]; element?: { selector: string }; }
 export interface WidgetConfig {
   boardId: string; submit: (input: WidgetSubmission) => Promise<void>; theme?: Theme;
   metadata?: Metadata; metadataAllowlist?: readonly string[]; consent?: CaptureConsent; capturePolicy?: CapturePolicy;
+  /** Optional host capture implementation. It receives masks before it returns a blob. */
+  captureScreenshot?: (input: ScreenshotCaptureInput) => Promise<Blob | undefined>;
   /** Categories are host/server controlled. Unknown categories fail closed. */
   allowedCategories?: readonly WidgetSubmission["category"][];
 }
@@ -19,6 +22,7 @@ export function allowMetadata(input: Metadata | undefined, keys: readonly string
 export function sanitizeConsoleLogs(entries: readonly string[], consent: boolean, policy: Pick<CapturePolicy, "maxConsoleEntries" | "maxConsoleChars"> = {}): string[] { if (!consent) return []; const count = Math.min(Math.max(policy.maxConsoleEntries ?? 50, 0), 50); const chars = Math.min(Math.max(policy.maxConsoleChars ?? 1000, 0), 1000); return entries.slice(-count).map((entry) => entry.slice(0, chars)); }
 /** Capture must have a positive host-enforced retention duration. */
 export function validateCapturePolicy(consent: CaptureConsent | undefined, policy: CapturePolicy | undefined): void { if (!(consent?.screenshot || consent?.consoleLogs)) return; const retentionMs = policy?.retentionMs; if (!Number.isSafeInteger(retentionMs) || !retentionMs || retentionMs <= 0) throw new Error("Capture requires a positive, host-enforced retentionMs policy."); }
+export async function captureScreenshot(config: Pick<WidgetConfig, "consent" | "capturePolicy" | "captureScreenshot">, element?: { selector: string }): Promise<Blob | undefined> { if (!config.consent?.screenshot || !config.captureScreenshot) return undefined; return config.captureScreenshot({ masks: config.capturePolicy?.screenshotMasks ?? [], element }); }
 export function elementContext(element: Element | null): { selector: string } | undefined {
   if (!element) return undefined;
   const id = element.getAttribute("id"); if (id) return { selector: `#${CSS.escape(id)}` };
@@ -40,5 +44,5 @@ export function init(config: WidgetConfig): FeedbackWidget {
   const sync = () => { button.textContent = open ? "Close feedback" : "Feedback"; button.setAttribute("aria-expanded", String(open)); };
   button.onclick = () => { open = !open; sync(); }; sync();
   window.dispatchEvent(new CustomEvent("feedback:ready", { detail: { boardId: config.boardId } }));
-  return { open: () => { open = true; sync(); }, close: () => { open = false; sync(); }, hide: () => { host.hidden = true; }, show: () => { host.hidden = false; }, setTheme: (theme) => host.dataset.theme = theme, registerFlow: (flow) => { if (!flow.id || flows.has(flow.id)) throw new Error("Flow id must be unique."); flows.set(flow.id, flow); }, async submit(input) { const allowed = config.allowedCategories ?? []; if (!allowed.includes(input.category)) throw new Error("Feedback category is not allowed."); await config.submit({ ...input, metadata: allowMetadata(config.metadata, config.metadataAllowlist), url: redactUrl(location.href), consoleLogs: sanitizeConsoleLogs(input.consoleLogs ?? [], Boolean(config.consent?.consoleLogs), config.capturePolicy), screenshot: config.consent?.screenshot ? input.screenshot : undefined }); }, destroy: () => host.remove() };
+  return { open: () => { open = true; sync(); }, close: () => { open = false; sync(); }, hide: () => { host.hidden = true; }, show: () => { host.hidden = false; }, setTheme: (theme) => host.dataset.theme = theme, registerFlow: (flow) => { if (!flow.id || flows.has(flow.id)) throw new Error("Flow id must be unique."); flows.set(flow.id, flow); }, async submit(input) { const allowed = config.allowedCategories ?? []; if (!allowed.includes(input.category)) throw new Error("Feedback category is not allowed."); await config.submit({ ...input, metadata: allowMetadata(config.metadata, config.metadataAllowlist), url: redactUrl(location.href), consoleLogs: sanitizeConsoleLogs(input.consoleLogs ?? [], Boolean(config.consent?.consoleLogs), config.capturePolicy), screenshot: config.consent?.screenshot ? (input.screenshot ?? await captureScreenshot(config)) : undefined }); }, destroy: () => host.remove() };
 }
