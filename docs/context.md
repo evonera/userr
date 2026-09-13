@@ -35,12 +35,12 @@ API keys, or customer secrets.
 - `@userr/widget`: framework-agnostic, Shadow-DOM launcher with an explicit
   consent/metadata boundary, URL redaction, controlled feedback flows, and a
   browser IIFE distribution. Screenshot annotation and storage are not built.
-- `@userr/cli`: `init`, `add` (both backends, RSS + sitemap, fail-closed
+- `@userr/cli`: `init`, `add` (Convex, Neon, and Supabase; RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
 - `@userr/supabase`: a demand-gated Supabase distribution of the tested
   Postgres repository, with full schema/RLS migrations, membership-authorized
   private Broadcast helpers, and contract-suite coverage. Its CLI installer is
-  deliberately not claimed yet; see `supabase.md`.
+  plus a server-only Next.js CLI scaffold; see `supabase.md`.
 - `@userr/sqlite`: libSQL/SQLite repository parity with FTS5 and
   normalized-title lexical matching; it passes the shared repository
   conformance suite. Vector search and framework route generation remain

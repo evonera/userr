@@ -45,9 +45,10 @@ or presents a refreshed JWT, per Supabase's authorization model.
   own votes to browser clients. Item creation, moderation, webhooks, and
   private-board reads go through the host server handler, which remains the
   authorization boundary.
-- This package does not yet generate Supabase routes through `userr add`; the
-  host mounts the framework-neutral handler. CLI installation is a separate,
-  adoption-gated follow-up rather than a misleading partial scaffold.
+- `userr init --backend supabase --framework next` and `userr add --backend
+  supabase --framework next` generate an owned, server-only Next route scaffold.
+  It imports only `@userr/supabase` public exports and refuses writes until the
+  host implements `identify`; it never exposes a service key to the browser.
 
 See the [Supabase Realtime authorization guide](https://supabase.com/docs/guides/realtime/authorization)
 for dashboard and channel requirements.

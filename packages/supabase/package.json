@@ -4,7 +4,10 @@
   "description": "Supabase RLS, private Realtime, and Postgres repository adapter for Userr.",
   "license": "MIT",
   "type": "module",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./schema": { "types": "./dist/schema.d.ts", "default": "./dist/schema.js" }
+  },
   "files": ["dist", "supabase"],
   "dependencies": {
     "@userr/core": "0.1.0",
