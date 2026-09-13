@@ -6,9 +6,9 @@
   "packageManager": "npm@11.17.0",
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run build --workspace=@userr/core && npm run build --workspace=@userr/widget && npm run build --workspace=@userr/react",
-    "test": "npm run test --workspace=@userr/core && npm run test --workspace=@userr/convex && npm run test --workspace=@userr/neon && npm run test --workspace=@userr/react && npm run test --workspace=@userr/cli",
-    "typecheck": "npm run typecheck --workspace=@userr/core && npm run typecheck --workspace=@userr/convex && npm run typecheck --workspace=@userr/neon && npm run typecheck --workspace=@userr/react && npm run typecheck --workspace=@userr/widget",
+    "build": "npm run build --workspace=@userr/core && npm run build --workspace=@userr/integrations && npm run build --workspace=@userr/widget && npm run build --workspace=@userr/react",
+    "test": "npm run test --workspace=@userr/core && npm run test --workspace=@userr/integrations && npm run test --workspace=@userr/convex && npm run test --workspace=@userr/neon && npm run test --workspace=@userr/react && npm run test --workspace=@userr/cli && node --test site/**/*.test.mjs",
+    "typecheck": "npm run typecheck --workspace=@userr/core && npm run typecheck --workspace=@userr/integrations && npm run typecheck --workspace=@userr/convex && npm run typecheck --workspace=@userr/neon && npm run typecheck --workspace=@userr/react && npm run typecheck --workspace=@userr/widget",
     "lint": "npm run typecheck",
     "userr": "node packages/cli/src/index.mjs"
   },

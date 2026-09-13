@@ -16,8 +16,8 @@ API keys, or customer secrets.
   `FeedbackRepository` covers boards/items, vote/unvote, setState (merged is
   merge-op-only), merge, events, changelog, lanes, and webhook delivery.
   Its import preview/mapping utilities preserve physical CSV row numbers, and
-  its embedding boundary reports a safe fallback reason rather than blocking
-  lexical duplicate matching.
+  its embedding and text-generation boundaries report safe fallback reasons
+  rather than blocking lexical duplicate matching or non-AI workflows.
 - `@userr/convex`: headless reference — boards/items/comments/subscriptions/
   embeddings/changelog/roadmap with cursor pagination (`convex-helpers`),
   idempotent votes, atomic merges, tombstoned comments (depth ≤ 5), lexical

@@ -36,6 +36,9 @@ testable in every adapter.
 - React widget wrapper: `@userr/react` imports `@userr/widget` to mount and
   destroy the browser launcher across React route transitions; the widget has
   no runtime dependencies of its own.
+- Integrations: `@userr/integrations` has no runtime dependencies or bundled
+  provider SDKs. The host supplies secrets and a transport, allowing it to
+  apply its own egress, signature-verification, and credential-rotation policy.
 - Next.js installer: `next` only when generated routes are selected.
 - Postgres: Drizzle plus the customer's database driver and `pgvector`.
 - Supabase: `@supabase/supabase-js` and SQL migrations/RLS policies.

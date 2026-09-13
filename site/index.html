@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Generate a local Userr install command." />
+    <title>Userr — local-first feedback</title>
+    <style>
+      :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+      body { max-width: 44rem; margin: 10vh auto; padding: 1.5rem; line-height: 1.5; }
+      form, fieldset { display: grid; gap: .75rem; border: 0; padding: 0; }
+      label { display: flex; gap: .5rem; align-items: center; }
+      code, output { display: block; padding: 1rem; border-radius: .5rem; background: #171717; color: #f7f7f7; overflow-wrap: anywhere; }
+      button { width: max-content; padding: .6rem .9rem; border-radius: .4rem; }
+      .note { color: #5d6875; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p>Userr</p>
+      <h1>Feedback infrastructure that stays in your app.</h1>
+      <p>Choose a supported stack to generate a local CLI command. This static page has no form submission, analytics, or secret fields.</p>
+      <form aria-label="Stack picker">
+        <fieldset>
+          <legend>Backend</legend>
+          <label><input type="radio" name="backend" value="convex" checked /> Convex</label>
+          <label><input type="radio" name="backend" value="neon" /> Neon / Postgres</label>
+        </fieldset>
+        <fieldset>
+          <legend>Framework</legend>
+          <label><input type="radio" name="framework" value="next" checked /> Next.js</label>
+        </fieldset>
+      </form>
+      <p><output aria-live="polite"></output></p>
+      <button type="button" data-copy>Copy command</button>
+      <p class="note">The CLI generates customer-owned source and does not overwrite changed files.</p>
+    </main>
+    <script type="module" src="./stack-picker.mjs"></script>
+  </body>
+</html>
