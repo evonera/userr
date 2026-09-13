@@ -9,5 +9,8 @@ test("maps Canny/Fider-shaped CSV rows without executing input", () => {
   assert.throws(() => parseCsv('title\na"b"'), /quote/);
   const preview = previewFeedbackCsv("title,votes\n,9007199254740992");
   assert.deepEqual(preview[0].errors, ["title is required", "vote count must be a safe integer"]);
+  const afterBlank = previewFeedbackCsv("title,votes\n\n,1");
+  assert.equal(afterBlank[0].sourceRow, 3);
+  assert.deepEqual(afterBlank[0].errors, ["title is required"]);
   assert.throws(() => mapFeedbackCsv("title,votes\n,1"), /validation errors/);
 });
