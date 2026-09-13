@@ -1,4 +1,5 @@
 import { init, type WidgetConfig } from "./index.js";
+export { editScreenshot } from "./screenshot.js";
 
 declare global { interface Window { Feedback?: ReturnType<typeof init>; } }
 

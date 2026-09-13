@@ -35,7 +35,8 @@ API keys, or customer secrets.
 - `@userr/widget`: framework-agnostic, Shadow-DOM launcher with an explicit
   consent/metadata boundary, URL redaction, controlled feedback flows, and a
   dependency-free DOM flow renderer. Its browser IIFE privacy boundary is
-  covered in Chromium. Screenshot annotation and storage are not built.
+  covered in Chromium. Browser-side screenshot annotation/redaction produces a
+  finalized host-stored PNG; Userr does not provide attachment storage or upload.
 - `@userr/cli`: `init`, `add` (Convex, Neon, and Supabase; RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
 - `@userr/supabase`: a demand-gated Supabase distribution of the tested

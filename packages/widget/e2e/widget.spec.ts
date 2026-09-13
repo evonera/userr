@@ -42,3 +42,16 @@ test("browser IIFE keeps submission data inside the host privacy boundary", asyn
   await page.evaluate(() => { const widget = (window as unknown as { Feedback: { show(): void; destroy(): void } }).Feedback; widget.show(); widget.destroy(); });
   await expect(page.locator("[data-userr-widget]")).toHaveCount(0);
 });
+
+test("screenshot edits paint privacy masks after annotations", async ({ page }) => {
+  await page.setContent("<!doctype html><title>Screenshot host</title>"); await page.addScriptTag({ path: bundlePath });
+  const result = await page.evaluate(async () => {
+    const source = document.createElement("canvas"); source.width = 8; source.height = 8; const sourceContext = source.getContext("2d")!; sourceContext.fillStyle = "#ff0000"; sourceContext.fillRect(0, 0, 8, 8);
+    const blob = await new Promise<Blob>((resolve, reject) => source.toBlob((value) => value ? resolve(value) : reject(new Error("source export failed")), "image/png"));
+    const browserBundle = (window as unknown as { Feedback: { editScreenshot(source: Blob, options: unknown): Promise<Blob> } }).Feedback;
+    const edited = await browserBundle.editScreenshot(blob, { annotations: [{ type: "highlight", x: 0, y: 0, width: 8, height: 8, color: "#00ff00" }], masks: [{ x: 0, y: 0, width: 4, height: 4 }] });
+    const bitmap = await createImageBitmap(edited); const output = document.createElement("canvas"); output.width = 8; output.height = 8; const outputContext = output.getContext("2d")!; outputContext.drawImage(bitmap, 0, 0); bitmap.close();
+    return { type: edited.type, masked: Array.from(outputContext.getImageData(1, 1, 1, 1).data), visible: Array.from(outputContext.getImageData(6, 6, 1, 1).data) };
+  });
+  expect(result.type).toBe("image/png"); expect(result.masked.slice(0, 3)).toEqual([17, 17, 17]); expect(result.visible.slice(0, 3)).toEqual([0, 255, 0]);
+});
