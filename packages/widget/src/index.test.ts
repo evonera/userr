@@ -26,4 +26,7 @@ test("flows resolve conditions and reject incomplete or ambiguous schemas", () =
   assert.deepEqual(validateFlow(flow, { title: "Broken", reproducible: false }).missing, []);
   assert.deepEqual(validateFlow(flow, { title: "", reproducible: true }).missing, ["title", "steps"]);
   assert.throws(() => validateFlow({ id: "bad", fields: [{ id: "x", label: "X" }, { id: "x", label: "Y" }] }, {}), /unique/);
+  assert.throws(() => validateFlow({ id: "bad", fields: [{ id: "   ", label: "Blank" }] }, {}), /non-empty/);
+  assert.throws(() => validateFlow({ id: "bad", fields: [{ id: " title", label: "Title" }] }, {}), /whitespace/);
+  assert.deepEqual(validateFlow({ id: "prototype", fields: [{ id: "constructor", label: "Constructor", required: true }] }, {}).missing, ["constructor"]);
 });
