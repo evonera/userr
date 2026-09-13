@@ -15,5 +15,11 @@ const script = document.currentScript as HTMLScriptElement | null;
 if (script?.dataset.board && !window.Feedback) {
   // A script tag needs a host-owned submit bridge. Fail closed until one is
   // installed instead of silently sending capture data to a vendor endpoint.
-  window.dispatchEvent(new CustomEvent("feedback:bootstrap", { detail: { boardId: script.dataset.board } }));
+  window.dispatchEvent(new CustomEvent("feedback:bootstrap", { detail: {
+    boardId: script.dataset.board,
+    theme: script.dataset.theme,
+    color: script.dataset.color,
+    position: script.dataset.position,
+    locale: script.dataset.locale,
+  } }));
 }

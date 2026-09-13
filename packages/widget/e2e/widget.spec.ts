@@ -60,3 +60,22 @@ test("screenshot edits paint privacy masks after annotations", async ({ page }) 
   });
   expect(result.type).toBe("image/png"); expect(result.masked.slice(0, 3)).toEqual([17, 17, 17]); expect(result.visible.slice(0, 3)).toEqual([0, 255, 0]);
 });
+
+test("launcher welcome is once-per-board and can be dismissed", async ({ page }) => {
+  await page.route("https://launcher.test/**", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Launcher host</title>" }));
+  await page.goto("https://launcher.test/"); await page.addScriptTag({ path: bundlePath });
+  await page.evaluate(() => {
+    const bundle = (window as unknown as { Feedback: { bootstrap(config: unknown): unknown } }).Feedback;
+    (window as unknown as { WidgetBundle: unknown }).WidgetBundle = bundle;
+    (window as unknown as { Feedback: unknown }).Feedback = bundle.bootstrap({ boardId: "welcome-board", allowedCategories: [], submit: async () => {} });
+  });
+  await expect(page.locator("[data-userr-widget]")).toHaveAttribute("data-welcome-visible", "true");
+  await page.evaluate(() => (window as unknown as { Feedback: { dismiss(): void; destroy(): void } }).Feedback.dismiss());
+  await expect(page.locator("[data-userr-widget]")).toBeHidden();
+  await page.evaluate(() => {
+    const current = (window as unknown as { Feedback: { destroy(): void } }).Feedback; current.destroy();
+    const bundle = (window as unknown as { WidgetBundle: { bootstrap(config: unknown): unknown } }).WidgetBundle;
+    (window as unknown as { Feedback: unknown }).Feedback = bundle.bootstrap({ boardId: "welcome-board", allowedCategories: [], submit: async () => {} });
+  });
+  await expect(page.locator("[data-userr-widget]")).toHaveAttribute("data-welcome-visible", "false");
+});

@@ -100,7 +100,7 @@ Goal: zero-dependency browser launcher + React wrapper.
 Spec: [feature-catalog](./feature-catalog.md) (Capture row); references: BugDrop
 (MIT) and Reflet behavior, clean-room only.
 
-- [ ] 5.1 IIFE bundle with zero runtime deps; `data-*` config + JS API
+- [x] 5.1 IIFE bundle with zero runtime deps; `data-*` config + JS API
   (`open/close/hide/show/setTheme`); Shadow DOM isolation; welcome-once +
   dismissible launcher.
 - [ ] 5.2 Opt-in screenshots with annotation + privacy masking/redaction,
