@@ -14,7 +14,8 @@ API keys, or customer secrets.
   `ITEM_STATES` + `EMBEDDING_DIMENSIONS` contract constants, and the shared
   conformance suite (12 steps, self-validated against an in-memory adapter).
   `FeedbackRepository` covers boards/items, vote/unvote, setState (merged is
-  merge-op-only), merge, events, changelog, lanes, and webhook delivery.
+  merge-op-only), merge, events, changelog, lanes, webhook configuration, and
+  delivery-record state. Backend workers perform outbound webhook delivery.
   Its import preview/mapping utilities preserve physical CSV row numbers, and
   its embedding and text-generation boundaries report safe fallback reasons
   rather than blocking lexical duplicate matching or non-AI workflows.
@@ -36,9 +37,9 @@ API keys, or customer secrets.
   browser IIFE distribution. Screenshot annotation and storage are not built.
 - `@userr/cli`: `init`, `add` (both backends, RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
-- No Supabase, external provider plugin, static stack-picker site, or semantic
-  vector worker exists yet. Phase 6 has started with portable import and
-  embedding-fallback utilities; its remaining deliverables stay unchecked in
+- No Supabase or semantic-vector worker exists yet. Phase 6 provides
+  dependency-free Slack, Discord, GitHub, and Linear adapter building blocks,
+  plus a static stack picker; the remaining deliverables stay unchecked in
   `delivery-plan.md`.
 
 ## Decisions that must not drift

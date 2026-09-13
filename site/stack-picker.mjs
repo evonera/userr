@@ -16,9 +16,14 @@ function mount() {
   };
   form.addEventListener("change", update); update();
   copy.addEventListener("click", async () => {
-    await navigator.clipboard?.writeText(output.value);
-    copy.textContent = "Copied";
-    setTimeout(() => { copy.textContent = "Copy command"; }, 1200);
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard is unavailable.");
+      await navigator.clipboard.writeText(output.value);
+      copy.textContent = "Copied";
+    } catch {
+      copy.textContent = "Copy unavailable — select command";
+    }
+    setTimeout(() => { copy.textContent = "Copy command"; }, 1800);
   });
 }
 if (typeof document !== "undefined") mount();
