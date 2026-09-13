@@ -46,6 +46,9 @@ testable in every adapter.
   built, Drizzle's MySQL dialect. The migration foundation has no runtime driver
   dependency; it uses InnoDB `FULLTEXT` rather than a vector extension.
 - Capture: browser-only image/annotation libraries, loaded on demand.
+- Widget DOM tests: `jsdom` and `@types/jsdom` are development-only dependencies
+  used to exercise the dependency-free renderer without shipping DOM emulation in
+  `@userr/widget` or its browser bundle.
 - Generated email notifications: `resend` is an optional, host-installed
   dependency used only by the CLI's server-only notification scaffold. The
   host owns its API key, verified sender, recipient data, and delivery policy;

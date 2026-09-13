@@ -15,7 +15,7 @@ export interface WidgetSubmission { title: string; body: string; category: "bug"
 export interface FlowField { id: string; label: string; required?: boolean; multiline?: boolean; placeholder?: string; when?: (values: Record<string, unknown>) => boolean; }
 export interface FeedbackFlow { id: string; title?: string; fields: readonly FlowField[]; }
 export interface FlowValidation { activeFields: readonly FlowField[]; missing: readonly string[]; }
-export interface RenderFlowOptions { initialValues?: Readonly<Record<string, string>>; submitLabel?: string; onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>; }
+export interface RenderFlowOptions { initialValues?: Readonly<Record<string, string>>; submitLabel?: string; submissionErrorMessage?: string; onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>; onSubmitError?: (error: unknown) => void; }
 export interface RenderedFlow { getValues(): Readonly<Record<string, string>>; destroy(): void; }
 export interface FeedbackWidget { open(): void; close(): void; hide(): void; show(): void; setTheme(theme: Theme): void; registerFlow(flow: FeedbackFlow): void; submit(input: Omit<WidgetSubmission,"metadata"|"url">): Promise<void>; destroy(): void; }
 
@@ -43,9 +43,9 @@ export function renderFlow(container: HTMLElement | ShadowRoot, flow: FeedbackFl
     input.addEventListener("input", () => { values[field.id] = input.value; sync(); });
     wrapper.append(label, input, error); form.append(wrapper); controls.set(field.id, { wrapper, input, error });
   }
-  const submit = document.createElement("button"); submit.type = "submit"; submit.textContent = options.submitLabel ?? "Submit feedback"; form.append(submit);
+  const submit = document.createElement("button"); submit.type = "submit"; submit.textContent = options.submitLabel ?? "Submit feedback"; const submitError = document.createElement("p"); submitError.setAttribute("role", "alert"); submitError.hidden = true; form.append(submit, submitError); let submitting = false;
   const sync = (showErrors = false) => { const validation = validateFlow(flow, values); const active = new Set(validation.activeFields.map((field) => field.id)); const missing = new Set(validation.missing); for (const [id, control] of controls) { const isActive = active.has(id); control.wrapper.hidden = !isActive; control.input.disabled = !isActive; const invalid = showErrors && missing.has(id); control.input.setAttribute("aria-invalid", String(invalid)); control.error.hidden = !invalid; control.error.textContent = invalid ? `${flow.fields.find((field) => field.id === id)?.label ?? id} is required.` : ""; } return validation; };
-  form.addEventListener("submit", (event) => { event.preventDefault(); const validation = sync(true); if (validation.missing.length) { controls.get(validation.missing[0])?.input.focus(); return; } const activeValues = Object.fromEntries(validation.activeFields.flatMap((field) => Object.hasOwn(values, field.id) ? [[field.id, values[field.id]]] : [])); void options.onSubmit(Object.freeze(activeValues)); });
+  form.addEventListener("submit", async (event) => { event.preventDefault(); if (submitting) return; const validation = sync(true); if (validation.missing.length) { controls.get(validation.missing[0])?.input.focus(); return; } const activeValues = Object.fromEntries(validation.activeFields.flatMap((field) => Object.hasOwn(values, field.id) ? [[field.id, values[field.id]]] : [])); submitting = true; submit.disabled = true; form.setAttribute("aria-busy", "true"); submitError.hidden = true; try { await options.onSubmit(Object.freeze(activeValues)); } catch (error) { submitError.textContent = options.submissionErrorMessage ?? "Feedback could not be submitted. Try again."; submitError.hidden = false; options.onSubmitError?.(error); } finally { submitting = false; submit.disabled = false; form.removeAttribute("aria-busy"); } });
   sync(); container.append(form);
   return { getValues: () => Object.freeze({ ...values }), destroy: () => form.remove() };
 }
