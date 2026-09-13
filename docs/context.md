@@ -37,10 +37,10 @@ API keys, or customer secrets.
   browser IIFE distribution. Screenshot annotation and storage are not built.
 - `@userr/cli`: `init`, `add` (both backends, RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
-- No Supabase or semantic-vector worker exists yet. Phase 6 provides
-  dependency-free Slack, Discord, GitHub, and Linear adapter building blocks,
-  plus a static stack picker; the remaining deliverables stay unchecked in
-  `delivery-plan.md`.
+- `@userr/supabase`: a demand-gated Supabase distribution of the tested
+  Postgres repository, with full schema/RLS migrations, membership-authorized
+  private Broadcast helpers, and contract-suite coverage. Its CLI installer is
+  deliberately not claimed yet; see `supabase.md`.
 
 ## Decisions that must not drift
 
@@ -70,8 +70,9 @@ API keys, or customer secrets.
 
 ## Current next task
 
-Phase 4 is open as a PR (unmerged): `phase-4-triage`. Next: review, merge,
-then Phase 5 (widget and capture).
+Phase 7 Supabase work is in progress on `phase-7-supabase`; its current goal
+is the backend distribution only. SQLite/MySQL and all customer-suite modules
+remain adoption-gated and are not bundled into this PR.
 
 ## Completed (Phase 4 branch, in review)
 

@@ -132,7 +132,9 @@ Gate: 3+ real user asks or a maintainer dogfoods it. Spec: [adapter-matrix](./ad
 (Tiers 1–2) + [feature-catalog](./feature-catalog.md) (Surveys/Support rows).
 
 - [ ] 7.1 Supabase adapter (SQL migrations + RLS + private Realtime channel
-  authorization) with documented vector/realtime behavior.
+  authorization) with documented vector/realtime behavior. In progress on
+  `phase-7-supabase`; CLI-generated Supabase routes are intentionally deferred
+  until the backend distribution has adoption evidence.
 - [ ] 7.2 SQLite (Turso/D1) / MySQL (PlanetScale) only with trigram fallback
   for dedup and honest polling story.
 - [ ] 7.3 Surveys/outbound (NPS/CSAT, targeting, frequency caps), then help

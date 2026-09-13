@@ -18,4 +18,8 @@ export {
   type ProcessOutboxOptions,
 } from "./repository.js";
 export { verifyWebhookSignature } from "@userr/core";
-export { createRequestHandler, toNextJsHandler } from "./handler.js";
+export {
+  createRequestHandler,
+  toNextJsHandler,
+  type HandlerOptions,
+} from "./handler.js";
