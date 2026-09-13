@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
-import { allowMetadata, captureScreenshot, redactUrl, renderFlow, sanitizeConsoleLogs, validateCapturePolicy, validateFlow } from "./index.js";
+import { allowMetadata, captureScreenshot, collectPrivacyMasks, elementContext, redactUrl, renderFlow, sanitizeConsoleLogs, validateCapturePolicy, validateFlow } from "./index.js";
 
 test("capture requires explicit consent and bounded host retention", () => {
   assert.deepEqual(sanitizeConsoleLogs(["one"], false), []);
@@ -21,6 +21,14 @@ test("capture helpers redact and bound host data", () => {
   assert.deepEqual(allowMetadata({ plan: "pro", token: "secret" }, ["plan"]), { plan: "pro" });
   assert.match(redactUrl("https://user:pass@example.test/a?token=secret&view=all"), /token=%5BREDACTED%5D/);
   assert.deepEqual(sanitizeConsoleLogs(["abcdef", "uvwxyz"], true, { maxConsoleEntries: 1, maxConsoleChars: 3 }), ["uvw"]);
+  assert.deepEqual(sanitizeConsoleLogs(["aaaa", "bbbb", "cccc"], true, { maxConsoleTotalChars: 6 }), ["bb", "cccc"]);
+});
+test("capture context finds declared components, source, and sensitive masks", () => {
+  const dom = new JSDOM('<main data-feedback-component="Page"><section data-feedback-component="Billing"><input id="card" autocomplete="cc-number" data-feedback-source="src/Billing.tsx:42"></section></main>');
+  const input = dom.window.document.querySelector("input")!;
+  input.getBoundingClientRect = () => ({ x: 10, y: 20, width: 200, height: 30, top: 20, right: 210, bottom: 50, left: 10, toJSON: () => ({}) });
+  assert.deepEqual(collectPrivacyMasks(dom.window.document), [{ x: 10, y: 20, width: 200, height: 30 }]);
+  assert.deepEqual(elementContext(input), { selector: "#card", componentStack: ["Billing", "Page"], source: { file: "src/Billing.tsx", line: 42 } });
 });
 test("flows resolve conditions and reject incomplete or ambiguous schemas", () => {
   const flow = { id: "bug", fields: [{ id: "title", label: "Title", required: true }, { id: "steps", label: "Steps", required: true, when: (values: Record<string, unknown>) => values.reproducible === true }] };

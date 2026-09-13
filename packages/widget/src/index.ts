@@ -2,8 +2,10 @@ export type Theme = "light" | "dark" | "system";
 export * from "./screenshot.js";
 export type Metadata = Record<string, string | number | boolean>;
 export interface CaptureConsent { screenshot?: boolean; consoleLogs?: boolean; }
-export interface CapturePolicy { retentionMs?: number; maxConsoleEntries?: number; maxConsoleChars?: number; screenshotMasks?: readonly { x: number; y: number; width: number; height: number }[]; }
-export interface ScreenshotCaptureInput { masks: readonly { x: number; y: number; width: number; height: number }[]; element?: { selector: string }; }
+export interface CapturePolicy { retentionMs?: number; maxConsoleEntries?: number; maxConsoleChars?: number; maxConsoleTotalChars?: number; screenshotMasks?: readonly PrivacyMask[]; autoPrivacyMasks?: boolean; }
+export interface PrivacyMask { x: number; y: number; width: number; height: number; }
+export interface ElementContext { selector: string; componentStack?: readonly string[]; source?: { file: string; line?: number }; }
+export interface ScreenshotCaptureInput { masks: readonly PrivacyMask[]; element?: ElementContext; }
 export interface WidgetConfig {
   boardId: string; submit: (input: WidgetSubmission) => Promise<void>; theme?: Theme;
   /** A small first-visit prompt. It is shown once per board and origin unless
@@ -29,10 +31,11 @@ const SENSITIVE_KEY = /(?:token|key|secret|password|code|session|credential|auth
 let renderedFlowSequence = 0;
 export function redactUrl(url: string): string { try { const parsed = new URL(url); for (const [key] of parsed.searchParams) if (SENSITIVE_KEY.test(key)) parsed.searchParams.set(key, "[REDACTED]"); if (parsed.hash) parsed.hash = parsed.hash.replace(/([#&](?:[^=&]*?(?:token|key|secret|password|code|session|credential|auth)[^=&]*)=)[^&]*/gi, "$1[REDACTED]"); parsed.username = ""; parsed.password = ""; return parsed.toString(); } catch { return ""; } }
 export function allowMetadata(input: Metadata | undefined, keys: readonly string[] = []): Metadata { return Object.fromEntries(Object.entries(input ?? {}).filter(([key]) => keys.includes(key))); }
-export function sanitizeConsoleLogs(entries: readonly string[], consent: boolean, policy: Pick<CapturePolicy, "maxConsoleEntries" | "maxConsoleChars"> = {}): string[] { if (!consent) return []; const count = Math.min(Math.max(policy.maxConsoleEntries ?? 50, 0), 50); const chars = Math.min(Math.max(policy.maxConsoleChars ?? 1000, 0), 1000); return entries.slice(-count).map((entry) => entry.slice(0, chars)); }
+export function sanitizeConsoleLogs(entries: readonly string[], consent: boolean, policy: Pick<CapturePolicy, "maxConsoleEntries" | "maxConsoleChars" | "maxConsoleTotalChars"> = {}): string[] { if (!consent) return []; const count = Math.min(Math.max(policy.maxConsoleEntries ?? 50, 0), 50); const chars = Math.min(Math.max(policy.maxConsoleChars ?? 1000, 0), 1000); let remaining = Math.min(Math.max(policy.maxConsoleTotalChars ?? 12_000, 0), 12_000); const kept: string[] = []; for (const entry of entries.slice(-count).reverse()) { if (remaining <= 0) break; const value = entry.slice(0, Math.min(chars, remaining)); kept.push(value); remaining -= value.length; } return kept.reverse(); }
 /** Capture must have a positive host-enforced retention duration. */
 export function validateCapturePolicy(consent: CaptureConsent | undefined, policy: CapturePolicy | undefined): void { if (!(consent?.screenshot || consent?.consoleLogs)) return; const retentionMs = policy?.retentionMs; if (!Number.isSafeInteger(retentionMs) || !retentionMs || retentionMs <= 0) throw new Error("Capture requires a positive, host-enforced retentionMs policy."); }
-export async function captureScreenshot(config: Pick<WidgetConfig, "consent" | "capturePolicy" | "captureScreenshot">, element?: { selector: string }): Promise<Blob | undefined> { if (!config.consent?.screenshot || !config.captureScreenshot) return undefined; return config.captureScreenshot({ masks: config.capturePolicy?.screenshotMasks ?? [], element }); }
+export function collectPrivacyMasks(root?: ParentNode): PrivacyMask[] { const scope = root ?? (typeof document === "undefined" ? undefined : document); if (!scope) return []; const selector = "[data-feedback-mask],input[type=password],input[autocomplete=current-password],input[autocomplete=new-password],input[autocomplete=one-time-code],input[autocomplete^=cc-]"; return Array.from(scope.querySelectorAll(selector)).flatMap((element) => { const rect = element.getBoundingClientRect(); return Number.isFinite(rect.x) && Number.isFinite(rect.y) && rect.width > 0 && rect.height > 0 ? [{ x: rect.x, y: rect.y, width: rect.width, height: rect.height }] : []; }); }
+export async function captureScreenshot(config: Pick<WidgetConfig, "consent" | "capturePolicy" | "captureScreenshot">, element?: ElementContext): Promise<Blob | undefined> { if (!config.consent?.screenshot || !config.captureScreenshot) return undefined; const masks = [...(config.capturePolicy?.screenshotMasks ?? []), ...(config.capturePolicy?.autoPrivacyMasks === false ? [] : collectPrivacyMasks())]; return config.captureScreenshot({ masks, element }); }
 /** Resolves conditional fields and required values without evaluating host input as code. */
 export function validateFlow(flow: FeedbackFlow, values: Record<string, unknown>): FlowValidation { const ids = new Set<string>(); for (const field of flow.fields) { if (!field.id.trim() || field.id.trim() !== field.id || ids.has(field.id)) throw new Error("Flow field ids must be unique, non-empty, and contain no surrounding whitespace."); ids.add(field.id); } const activeFields = flow.fields.filter((field) => field.when?.(values) ?? true); const missing = activeFields.filter((field) => field.required && (!Object.hasOwn(values, field.id) || values[field.id] === undefined || values[field.id] === null || values[field.id] === "")).map((field) => field.id); return { activeFields, missing }; }
 /** Renders a flow without HTML injection or a framework dependency. Submission remains host-owned. */
@@ -55,14 +58,24 @@ export function renderFlow(container: HTMLElement | ShadowRoot, flow: FeedbackFl
   sync(); container.append(form);
   return { getValues: () => Object.freeze({ ...values }), destroy: () => form.remove() };
 }
-export function elementContext(element: Element | null): { selector: string } | undefined {
+export function elementContext(element: Element | null): ElementContext | undefined {
   if (!element) return undefined;
-  const id = element.getAttribute("id"); if (id) return { selector: `#${CSS.escape(id)}` };
+  const css = element.ownerDocument.defaultView?.CSS;
+  const escape = (value: string) => css?.escape ? css.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  const id = element.getAttribute("id"); let selector: string;
+  if (id) selector = `#${escape(id)}`;
+  else {
   const context = element.getAttribute("data-feedback-context");
-  if (context) return { selector: `[data-feedback-context="${CSS.escape(context)}"]` };
+  if (context) selector = `[data-feedback-context="${escape(context)}"]`;
+  else {
   const testId = element.getAttribute("data-testid");
-  if (testId) return { selector: `[data-testid="${CSS.escape(testId)}"]` };
-  return { selector: element.tagName.toLowerCase() };
+  selector = testId ? `[data-testid="${escape(testId)}"]` : element.tagName.toLowerCase();
+  }}
+  const componentStack: string[] = []; let cursor: Element | null = element;
+  while (cursor && componentStack.length < 20) { const name = cursor.getAttribute("data-feedback-component"); if (name?.trim()) componentStack.push(name.trim().slice(0, 100)); cursor = cursor.parentElement; }
+  const sourceValue = element.closest("[data-feedback-source]")?.getAttribute("data-feedback-source")?.trim(); let source: ElementContext["source"];
+  if (sourceValue) { const match = sourceValue.match(/^(.*?):(\d+)$/); source = match ? { file: match[1].slice(0, 500), line: Number(match[2]) } : { file: sourceValue.slice(0, 500) }; }
+  return { selector, ...(componentStack.length ? { componentStack } : {}), ...(source ? { source } : {}) };
 }
 
 export function init(config: WidgetConfig): FeedbackWidget {

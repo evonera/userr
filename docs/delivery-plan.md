@@ -103,7 +103,7 @@ Spec: [feature-catalog](./feature-catalog.md) (Capture row); references: BugDrop
 - [x] 5.1 IIFE bundle with zero runtime deps; `data-*` config + JS API
   (`open/close/hide/show/setTheme`); Shadow DOM isolation; welcome-once +
   dismissible launcher.
-- [ ] 5.2 Opt-in screenshots with annotation + privacy masking/redaction,
+- [x] 5.2 Opt-in screenshots with annotation + privacy masking/redaction,
   element context (selector + component stack), console-log bundle behind
   explicit consent; metadata allowlist; retention controls; no session replay.
 - [ ] 5.3 Declarative flow builder (forms/screens/conditions) + headless submit
