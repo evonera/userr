@@ -106,9 +106,9 @@ Spec: [feature-catalog](./feature-catalog.md) (Capture row); references: BugDrop
 - [x] 5.2 Opt-in screenshots with annotation + privacy masking/redaction,
   element context (selector + component stack), console-log bundle behind
   explicit consent; metadata allowlist; retention controls; no session replay.
-- [ ] 5.3 Declarative flow builder (forms/screens/conditions) + headless submit
+- [x] 5.3 Declarative flow builder (forms/screens/conditions) + headless submit
   for fully custom UI; server-controlled labels/statuses (fail closed).
-- [ ] 5.4 Rate limits + HMAC host tokens + redacted URLs; Playwright E2E +
+- [x] 5.4 Rate limits + HMAC host tokens + redacted URLs; Playwright E2E +
   privacy tests. Portable token signing/verification, an atomic dual-limit host
   contract with all-or-nothing denial semantics, refreshable browser token
   forwarding, URL redaction, and Chromium privacy tests are shipped; concrete

@@ -41,6 +41,14 @@ test("browser IIFE keeps submission data inside the host privacy boundary", asyn
   });
   expect(deniedCategory).toContain("not allowed");
 
+  const variantSubmission = await page.evaluate(async () => {
+    const widget = (window as unknown as { Feedback: { registerVariant(id: string): { submit(input: unknown): Promise<void> } } }).Feedback;
+    const variant = widget.registerVariant("custom-button");
+    await variant.submit({ title: "Variant", body: "Custom UI", category: "bug" });
+    return (window as unknown as { submission: { title: string } }).submission.title;
+  });
+  expect(variantSubmission).toBe("Variant");
+
   await page.evaluate(() => (window as unknown as { Feedback: { hide(): void } }).Feedback.hide());
   await expect(page.locator("[data-userr-widget]")).toBeHidden();
   await page.evaluate(() => { const widget = (window as unknown as { Feedback: { show(): void; destroy(): void } }).Feedback; widget.show(); widget.destroy(); });

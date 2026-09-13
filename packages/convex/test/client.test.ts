@@ -77,11 +77,11 @@ describe("Convex widget host handler", () => {
       consumeAllOrNothing: async (requests) => await t.mutation(api.rateLimits.consumeAllOrNothing, { requests }),
       createItem: async (input) => ({ id: await t.mutation(api.items.create, input) }),
     });
-    const submit = () => handler(new Request("http://host.test/api/userr/widget", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ boardId, hostToken, title: "Keyboard mode", body: "Please.", category: "feature" }) }));
+    const submit = () => handler(new Request("http://host.test/api/userr/widget", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ boardId, hostToken, title: "Keyboard mode", body: "Please.", category: "feature", state: "shipped", labels: ["admin"] }) }));
     const created = await submit(); expect(created.status).toBe(201);
     const id = ((await created.json()) as { id: string }).id;
     const item = await t.query(api.items.get, { itemId: id });
-    expect(item?.item).toMatchObject({ authorId: "visitor-1", kind: "idea" });
+    expect(item?.item).toMatchObject({ authorId: "visitor-1", kind: "idea", state: "inbox", labels: [] });
     const denied = await submit(); expect(denied.status).toBe(429); expect(Number(denied.headers.get("retry-after"))).toBeGreaterThan(0);
 
     const questionToken = await signWidgetToken(secret, { version: 1, boardId, subject: "visitor-2", nonce: "nonce-2", issuedAt: now, expiresAt: now + 60_000 });
