@@ -1,12 +1,14 @@
 import { init, type WidgetConfig } from "./index.js";
+import { editScreenshot } from "./screenshot.js";
 export { editScreenshot } from "./screenshot.js";
 
-declare global { interface Window { Feedback?: ReturnType<typeof init>; } }
+export type BrowserFeedback = ReturnType<typeof init> & { editScreenshot: typeof editScreenshot };
+declare global { interface Window { Feedback?: BrowserFeedback; } }
 
 /** Script-tag bootstrap. The host supplies a submit callback after load; this
  * bootstrap only reads public presentation data and never discovers secrets. */
-export function bootstrap(config: WidgetConfig): ReturnType<typeof init> {
-  const widget = init(config); window.Feedback = widget; return widget;
+export function bootstrap(config: WidgetConfig): BrowserFeedback {
+  const widget = Object.assign(init(config), { editScreenshot }); window.Feedback = widget; return widget;
 }
 
 const script = document.currentScript as HTMLScriptElement | null;

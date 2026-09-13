@@ -48,8 +48,9 @@ test("screenshot edits paint privacy masks after annotations", async ({ page }) 
   const result = await page.evaluate(async () => {
     const source = document.createElement("canvas"); source.width = 8; source.height = 8; const sourceContext = source.getContext("2d")!; sourceContext.fillStyle = "#ff0000"; sourceContext.fillRect(0, 0, 8, 8);
     const blob = await new Promise<Blob>((resolve, reject) => source.toBlob((value) => value ? resolve(value) : reject(new Error("source export failed")), "image/png"));
-    const browserBundle = (window as unknown as { Feedback: { editScreenshot(source: Blob, options: unknown): Promise<Blob> } }).Feedback;
-    const edited = await browserBundle.editScreenshot(blob, { annotations: [{ type: "highlight", x: 0, y: 0, width: 8, height: 8, color: "#00ff00" }], masks: [{ x: 0, y: 0, width: 4, height: 4 }] });
+    const browserBundle = (window as unknown as { Feedback: { bootstrap(config: unknown): { editScreenshot(source: Blob, options: unknown): Promise<Blob> } } }).Feedback;
+    const widget = browserBundle.bootstrap({ boardId: "screenshots", allowedCategories: [], submit: async () => {} });
+    const edited = await widget.editScreenshot(blob, { annotations: [{ type: "highlight", x: 0, y: 0, width: 8, height: 8, color: "#00ff00" }], masks: [{ x: 0, y: 0, width: 4, height: 4 }] });
     const bitmap = await createImageBitmap(edited); const output = document.createElement("canvas"); output.width = 8; output.height = 8; const outputContext = output.getContext("2d")!; outputContext.drawImage(bitmap, 0, 0); bitmap.close();
     return { type: edited.type, masked: Array.from(outputContext.getImageData(1, 1, 1, 1).data), visible: Array.from(outputContext.getImageData(6, 6, 1, 1).data) };
   });
