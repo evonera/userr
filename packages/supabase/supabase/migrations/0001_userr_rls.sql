@@ -1,7 +1,11 @@
--- Apply after the Userr Postgres schema. Host-managed identity is stored in JWT `sub`.
+-- Apply after 0000_userr_schema.sql. Host-managed identity is stored in JWT `sub`.
 alter table public.boards enable row level security;
 alter table public.items enable row level security;
 alter table public.votes enable row level security;
+drop policy if exists "public boards are readable" on public.boards;
+drop policy if exists "public board items are readable" on public.items;
+drop policy if exists "actors only write their votes" on public.votes;
+drop policy if exists "authenticated feedback broadcast" on realtime.messages;
 create policy "public boards are readable" on public.boards for select using (visibility = 'public');
 create policy "public board items are readable" on public.items for select using (exists (select 1 from public.boards b where b.id = board_id and b.visibility = 'public'));
 create policy "actors only write their votes" on public.votes for all using (actor_id = auth.uid()::text) with check (actor_id = auth.uid()::text);
