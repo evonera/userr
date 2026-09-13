@@ -110,8 +110,9 @@ Spec: [feature-catalog](./feature-catalog.md) (Capture row); references: BugDrop
   for fully custom UI; server-controlled labels/statuses (fail closed).
 - [ ] 5.4 Rate limits + HMAC host tokens + redacted URLs; Playwright E2E +
   privacy tests. Portable token signing/verification, an atomic dual-limit host
-  contract, browser token forwarding, URL redaction, and Chromium privacy tests
-  are shipped; concrete backend limiter storage/wiring remains incomplete.
+  contract with all-or-nothing denial semantics, refreshable browser token
+  forwarding, URL redaction, and Chromium privacy tests are shipped; concrete
+  backend limiter storage/wiring remains incomplete.
 
 ## Phase 6 — Intelligence, integrations, and site
 

@@ -4,7 +4,9 @@ export interface WidgetTokenClaims { version: 1; boardId: string; subject: strin
 export type WidgetTokenFailureReason = "malformed" | "invalid_signature" | "expired" | "not_yet_valid" | "wrong_board";
 export type WidgetTokenVerification = { valid: true; claims: WidgetTokenClaims } | { valid: false; reason: WidgetTokenFailureReason };
 export interface RateLimitRequest { key: string; limit: number; windowMs: number; }
-export interface AtomicRateLimiter { consumeMany(requests: readonly RateLimitRequest[]): Promise<{ allowed: boolean; retryAfterMs?: number }>; }
+/** The host must check every request atomically, increment every counter only
+ * when all limits allow it, and leave every counter unchanged on denial. */
+export interface AtomicRateLimiter { consumeAllOrNothing(requests: readonly RateLimitRequest[]): Promise<{ allowed: boolean; retryAfterMs?: number }>; }
 export interface WidgetGuardInput { token: string; secret: string; boardId: string; networkFingerprint: string; limiter: AtomicRateLimiter; now?: number; subjectLimit?: Omit<RateLimitRequest, "key">; networkLimit?: Omit<RateLimitRequest, "key">; }
 export type WidgetGuardResult = { allowed: true; claims: WidgetTokenClaims } | { allowed: false; reason: WidgetTokenFailureReason } | { allowed: false; reason: "rate_limited"; retryAfterMs?: number };
 
@@ -33,5 +35,5 @@ export async function verifyWidgetToken(secret: string, token: string, expectedB
 export async function authorizeWidgetSubmission(input: WidgetGuardInput): Promise<WidgetGuardResult> {
   const verification = await verifyWidgetToken(input.secret, input.token, input.boardId, input.now); if (!verification.valid) return { allowed: false, reason: verification.reason }; if (!validText(input.networkFingerprint)) throw new Error("A non-empty host-hashed network fingerprint is required.");
   const subjectLimit = input.subjectLimit ?? { limit: 10, windowMs: 60_000 }; const networkLimit = input.networkLimit ?? { limit: 30, windowMs: 60_000 }; for (const limit of [subjectLimit, networkLimit]) if (!Number.isSafeInteger(limit.limit) || limit.limit <= 0 || !Number.isSafeInteger(limit.windowMs) || limit.windowMs <= 0) throw new Error("Widget rate limits must be positive integers.");
-  const boardKey = encodeBase64Url(input.boardId); const subjectKey = encodeBase64Url(verification.claims.subject); const networkKey = encodeBase64Url(input.networkFingerprint); const result = await input.limiter.consumeMany([{ key: `widget:${boardKey}:subject:${subjectKey}`, ...subjectLimit }, { key: `widget:${boardKey}:network:${networkKey}`, ...networkLimit }]); return result.allowed ? { allowed: true, claims: verification.claims } : { allowed: false, reason: "rate_limited", retryAfterMs: result.retryAfterMs };
+  const boardKey = encodeBase64Url(input.boardId); const subjectKey = encodeBase64Url(verification.claims.subject); const networkKey = encodeBase64Url(input.networkFingerprint); const result = await input.limiter.consumeAllOrNothing([{ key: `widget:${boardKey}:subject:${subjectKey}`, ...subjectLimit }, { key: `widget:${boardKey}:network:${networkKey}`, ...networkLimit }]); return result.allowed ? { allowed: true, claims: verification.claims } : { allowed: false, reason: "rate_limited", retryAfterMs: result.retryAfterMs };
 }

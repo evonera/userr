@@ -15,9 +15,9 @@ test("widget host tokens are scoped, short-lived, and tamper evident", async () 
 });
 
 test("widget guard consumes subject and network limits in one host transaction", async () => {
-  const token = await signWidgetToken(secret, claims); let requests: readonly RateLimitRequest[] = [];
-  const allowed = await authorizeWidgetSubmission({ token, secret, boardId: "board", networkFingerprint: "hashed-network", now: 2_000, limiter: { consumeMany: async (input) => { requests = input; return { allowed: true }; } } });
-  assert.equal(allowed.allowed, true); assert.deepEqual(requests, [{ key: "widget:Ym9hcmQ:subject:YWN0b3ItMQ", limit: 10, windowMs: 60_000 }, { key: "widget:Ym9hcmQ:network:aGFzaGVkLW5ldHdvcms", limit: 30, windowMs: 60_000 }]);
-  const denied = await authorizeWidgetSubmission({ token, secret, boardId: "board", networkFingerprint: "hashed-network", now: 2_000, limiter: { consumeMany: async () => ({ allowed: false, retryAfterMs: 500 }) } });
+  const token = await signWidgetToken(secret, claims); let requests: readonly RateLimitRequest[] = []; let calls = 0;
+  const allowed = await authorizeWidgetSubmission({ token, secret, boardId: "board", networkFingerprint: "hashed-network", now: 2_000, limiter: { consumeAllOrNothing: async (input) => { calls += 1; requests = input; return { allowed: true }; } } });
+  assert.equal(allowed.allowed, true); assert.equal(calls, 1); assert.deepEqual(requests, [{ key: "widget:Ym9hcmQ:subject:YWN0b3ItMQ", limit: 10, windowMs: 60_000 }, { key: "widget:Ym9hcmQ:network:aGFzaGVkLW5ldHdvcms", limit: 30, windowMs: 60_000 }]);
+  const denied = await authorizeWidgetSubmission({ token, secret, boardId: "board", networkFingerprint: "hashed-network", now: 2_000, limiter: { consumeAllOrNothing: async () => ({ allowed: false, retryAfterMs: 500 }) } });
   assert.deepEqual(denied, { allowed: false, reason: "rate_limited", retryAfterMs: 500 });
 });

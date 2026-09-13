@@ -9,10 +9,11 @@ test("browser IIFE keeps submission data inside the host privacy boundary", asyn
   await page.goto("https://example.test/account?token=secret&view=public");
   await page.addScriptTag({ path: bundlePath });
   await page.evaluate(() => {
+    (window as unknown as { currentHostToken: string }).currentHostToken = "initial-token";
     const browserBundle = (window as unknown as { Feedback: { bootstrap(config: unknown): unknown } }).Feedback;
     (window as unknown as { submission?: unknown; Feedback: unknown }).Feedback = browserBundle.bootstrap({
       boardId: "public-board",
-      hostToken: "host-signed-token",
+      getHostToken: () => (window as unknown as { currentHostToken: string }).currentHostToken,
       allowedCategories: ["bug"],
       metadata: { plan: "pro", token: "host-secret" },
       metadataAllowlist: ["plan"],
@@ -23,12 +24,13 @@ test("browser IIFE keeps submission data inside the host privacy boundary", asyn
 
   await expect(page.locator("[data-userr-widget]")).toHaveCount(1);
   const submission = await page.evaluate(async () => {
+    (window as unknown as { currentHostToken: string }).currentHostToken = "refreshed-host-token";
     const widget = (window as unknown as { Feedback: { submit(input: unknown): Promise<void> } }).Feedback;
     await widget.submit({ title: "Broken", body: "Steps", category: "bug", consoleLogs: ["private log"] });
     return (window as unknown as { submission: { metadata: unknown; url: string; consoleLogs: string[] } }).submission;
   });
   expect(submission.metadata).toEqual({ plan: "pro" });
-  expect((submission as typeof submission & { hostToken: string }).hostToken).toBe("host-signed-token");
+  expect((submission as typeof submission & { hostToken: string }).hostToken).toBe("refreshed-host-token");
   expect(submission.url).toContain("token=%5BREDACTED%5D");
   expect(submission.url).toContain("view=public");
   expect(submission.consoleLogs).toEqual([]);
