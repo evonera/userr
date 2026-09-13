@@ -5,11 +5,13 @@ import {
   normalizeText,
   type Board,
   type BoardInput,
+  type ChangelogInput,
   type CursorPage,
   type FeedbackItem,
   type ItemInput,
   type ItemState,
   type MergePlan,
+  type LaneInput,
   type ModerationState,
 } from "@userr/core";
 
@@ -206,6 +208,33 @@ export function createRepository(client: SqliteClient) {
     async listEvents(input: { itemId: string }) {
       const rows = (await client.execute({ sql: "select * from events where item_id = ? order by created_at, id", args: [input.itemId] })).rows;
       return rows.map((row) => ({ id: String(row.id), itemId: String(row.item_id), type: row.type as "created" | "state_changed" | "merged" | "vote_added" | "vote_removed" | "commented" | "flagged" | "moderated", ...(row.actor_id ? { actorId: String(row.actor_id) } : {}), createdAt: number(row.created_at), payload: parse<Record<string, unknown>>(row.payload, {}) }));
+    },
+    async publishChangelogEntry(input: ChangelogInput) {
+      const board = await one(client, { sql: "select id from boards where id = ?", args: [input.boardId] });
+      if (!board) throw new Error("Board not found.");
+      for (const itemId of input.linkedItemIds) {
+        const linked = await one(client, { sql: "select id from items where id = ? and board_id = ?", args: [itemId, input.boardId] });
+        if (!linked) throw new Error("Changelog links must belong to its board.");
+      }
+      const now = Date.now(); const entry = { id: id("change"), boardId: input.boardId, title: input.title, slug: slug(input.title, input.title.slice(0, 8)), body: input.body, ...(input.version ? { version: input.version } : {}), linkedItemIds: input.linkedItemIds, ...(input.publishedAt ? { publishedAt: input.publishedAt } : {}), createdAt: now };
+      await client.execute({ sql: "insert into changelog_entries (id, board_id, title, slug, body, version, linked_item_ids, published_at, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)", args: [entry.id, entry.boardId, entry.title, entry.slug, entry.body, entry.version ?? null, json(entry.linkedItemIds), entry.publishedAt ?? null, entry.createdAt] });
+      return entry;
+    },
+    async listChangelog(input: { boardId: string; cursor?: string; limit: number }) {
+      const offset = input.cursor ? Number(input.cursor) : 0;
+      const rows = (await client.execute({ sql: "select * from changelog_entries where board_id = ? order by created_at desc, id desc limit ? offset ?", args: [input.boardId, input.limit + 1, offset] })).rows;
+      const hasMore = rows.length > input.limit;
+      return { items: rows.slice(0, input.limit).map((row) => ({ id: String(row.id), boardId: String(row.board_id), title: String(row.title), slug: String(row.slug), body: String(row.body), ...(row.version ? { version: String(row.version) } : {}), linkedItemIds: parse<readonly string[]>(row.linked_item_ids, []), ...(row.published_at ? { publishedAt: number(row.published_at) } : {}), createdAt: number(row.created_at) })), nextCursor: hasMore ? String(offset + input.limit) : null };
+    },
+    async saveLane(input: LaneInput) {
+      if (input.states.some((state) => !ITEM_STATES.includes(state) || state === "merged")) throw new Error("Invalid roadmap state.");
+      const value = { id: input.id ?? id("lane"), boardId: input.boardId, name: input.name, states: input.states, order: input.order };
+      await client.execute({ sql: "insert into roadmap_lanes (id, board_id, name, states, sort_order) values (?, ?, ?, ?, ?) on conflict(id) do update set name = excluded.name, states = excluded.states, sort_order = excluded.sort_order", args: [value.id, value.boardId, value.name, json(value.states), value.order] });
+      return value;
+    },
+    async listLanes(input: { boardId: string }) {
+      const rows = (await client.execute({ sql: "select * from roadmap_lanes where board_id = ? order by sort_order, id", args: [input.boardId] })).rows;
+      return rows.map((row) => ({ id: String(row.id), boardId: String(row.board_id), name: String(row.name), states: parse<readonly ItemState[]>(row.states, []), order: number(row.sort_order) }));
     },
   };
 }
