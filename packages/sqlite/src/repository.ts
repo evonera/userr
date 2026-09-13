@@ -5,6 +5,8 @@ import {
   assertSafeWebhookUrl,
   generateWebhookSecret,
   nextRetryAt,
+  VOTE_MILESTONES,
+  webhookSubscribesTo,
   normalizeText,
   secretPreview,
   type Board,
@@ -89,6 +91,15 @@ async function write<T>(client: SqliteClient, work: (tx: SqliteTransaction) => P
   try { const result = await work(tx); await tx.commit(); return result; }
   catch (error) { await tx.rollback(); throw error; }
 }
+async function enqueue(tx: SqliteTransaction, boardId: string, type: WebhookEventType, payload: Record<string, unknown>): Promise<void> {
+  const hooks = (await tx.execute({ sql: "select * from webhooks where board_id = ? and active = 1", args: [boardId] })).rows;
+  const now = Date.now();
+  for (const hook of hooks) {
+    if (!webhookSubscribesTo(parse<readonly string[]>(hook.events, []), type)) continue;
+    await tx.execute({ sql: "insert into deliveries (id, webhook_id, event, payload, status, attempts, next_retry_at, created_at) values (?, ?, ?, ?, 'pending', 0, ?, ?)", args: [id("dlv"), String(hook.id), type, json(payload), now, now] });
+    await tx.execute({ sql: "update webhooks set last_triggered_at = ? where id = ?", args: [now, String(hook.id)] });
+  }
+}
 
 /**
  * First SQLite repository slice. It intentionally speaks the same persisted
@@ -123,12 +134,11 @@ export function createRepository(client: SqliteClient) {
         createdAt: now, updatedAt: now, voteCount: 0, commentCount: 0, moderation: "approved", labels: [],
         ...(input.context ? { context: input.context } : {}),
       };
-      const statements: SqliteStatement[] = [
-        { sql: "insert into items (id, board_id, public_id, slug, title, body, normalized_title, search_text, kind, state, author_id, vote_count, comment_count, labels, moderation, context, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '[]', 'approved', ?, ?, ?)", args: [value.id, value.boardId, value.publicId, value.slug, value.title, value.body, normalizeText(value.title), `${value.title} ${value.body}`, value.kind, value.state, value.authorId, value.context ? json(value.context) : null, now, now] },
-        { sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'created', ?, '{}', ?)", args: [id("evt"), value.id, value.authorId, now] },
-      ];
-      if (!client.batch) throw new Error("SQLite client must support transactional batch writes.");
-      await client.batch(statements, "write");
+      await write(client, async (tx) => {
+        await tx.execute({ sql: "insert into items (id, board_id, public_id, slug, title, body, normalized_title, search_text, kind, state, author_id, vote_count, comment_count, labels, moderation, context, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, '[]', 'approved', ?, ?, ?)", args: [value.id, value.boardId, value.publicId, value.slug, value.title, value.body, normalizeText(value.title), `${value.title} ${value.body}`, value.kind, value.state, value.authorId, value.context ? json(value.context) : null, now, now] });
+        await tx.execute({ sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'created', ?, '{}', ?)", args: [id("evt"), value.id, value.authorId, now] });
+        await enqueue(tx, value.boardId, "v1.post.created", { itemId: value.id });
+      });
       return value;
     },
     async findItem(itemId: string): Promise<FeedbackItem | null> {
@@ -240,6 +250,7 @@ export function createRepository(client: SqliteClient) {
         const now = Date.now();
         await tx.execute({ sql: "update items set vote_count = ?, updated_at = ? where id = ?", args: [next, now, input.itemId] });
         await tx.execute({ sql: "insert into events (id, item_id, type, actor_id, payload, created_at) values (?, ?, 'vote_added', ?, '{}', ?)", args: [id("evt"), input.itemId, input.actorId, now] });
+        if (VOTE_MILESTONES.includes(next)) await enqueue(tx, String(row.board_id), "v1.vote.milestone", { itemId: input.itemId, voteCount: next });
         return { added: true, voteCount: next };
       });
     },
