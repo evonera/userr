@@ -18,7 +18,9 @@ API keys, or customer secrets.
   delivery-record state. Backend workers perform outbound webhook delivery.
   Its import preview/mapping utilities preserve physical CSV row numbers, and
   its embedding and text-generation boundaries report safe fallback reasons
-  rather than blocking lexical duplicate matching or non-AI workflows.
+  rather than blocking lexical duplicate matching or non-AI workflows. Its
+  widget request guard verifies short-lived host HMAC tokens and delegates dual
+  subject/network limits to an atomic host storage implementation.
 - `@userr/convex`: headless reference — boards/items/comments/subscriptions/
   embeddings/changelog/roadmap with cursor pagination (`convex-helpers`),
   idempotent votes, atomic merges, tombstoned comments (depth ≤ 5), lexical
@@ -36,7 +38,8 @@ API keys, or customer secrets.
   consent/metadata boundary, URL redaction, controlled feedback flows, and a
   dependency-free DOM flow renderer. Its browser IIFE privacy boundary is
   covered in Chromium. Browser-side screenshot annotation/redaction produces a
-  finalized host-stored PNG; Userr does not provide attachment storage or upload.
+  finalized host-stored PNG, and it can forward a short-lived host token without
+  seeing the signing secret. Userr does not provide attachment storage or upload.
 - `@userr/cli`: `init`, `add` (Convex, Neon, and Supabase; RSS + sitemap, fail-closed
   templates), `doctor` (backend-aware), `upgrade`; generates `userr.config.ts`.
 - `@userr/supabase`: a demand-gated Supabase distribution of the tested
