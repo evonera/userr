@@ -240,6 +240,18 @@ describe("request handler", () => {
     expect(question.status).toBe(201);
     expect(await question.json()).toMatchObject({ kind: "feedback" });
 
+    const supportBoard = (await (await handle(request("/boards", {
+      method: "POST", actor: "owner", body: { slug: "support", name: "Support", allowedKinds: ["support"] },
+    }))).json()) as { id: string };
+    const supportToken = await signWidgetToken(secret, {
+      version: 1, boardId: supportBoard.id, subject: "visitor-support", nonce: "nonce-support", issuedAt: now, expiresAt: now + 60_000,
+    });
+    const supportQuestion = await handle(request("/widget/items", {
+      method: "POST", body: { boardId: supportBoard.id, hostToken: supportToken, title: "Need help", category: "question" },
+    }));
+    expect(supportQuestion.status).toBe(201);
+    expect(await supportQuestion.json()).toMatchObject({ kind: "support" });
+
     const unconfigured = createRequestHandler({
       db,
       identify: async () => null,

@@ -316,7 +316,12 @@ export function createRequestHandler(
             : failure("Widget host token is invalid.", 401);
         }
         const category = str(body.category, "category");
-        const kinds = { bug: "bug", feature: "idea", question: "feedback" } as const;
+        const board = await getBoard(options.db, boardId);
+        if (!board) return failure("Board not found.", 404);
+        const questionKind = board.allowedKinds.includes("support")
+          ? "support"
+          : "feedback";
+        const kinds = { bug: "bug", feature: "idea", question: questionKind } as const;
         if (!Object.hasOwn(kinds, category)) {
           return failure("category must be bug, feature, or question.", 400);
         }

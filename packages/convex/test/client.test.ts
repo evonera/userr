@@ -89,6 +89,16 @@ describe("Convex widget host handler", () => {
     expect(question.status).toBe(201);
     const questionId = ((await question.json()) as { id: string }).id;
     expect((await t.query(api.items.get, { itemId: questionId }))?.item.kind).toBe("feedback");
+
+    const supportBoardId = await createBoard(t, { allowedKinds: ["support"] });
+    const supportToken = await signWidgetToken(secret, { version: 1, boardId: supportBoardId, subject: "visitor-3", nonce: "nonce-3", issuedAt: now, expiresAt: now + 60_000 });
+    const supportHandler = createWidgetHostHandler({
+      secret, questionKind: "support", networkFingerprint: async () => "host-hash:support",
+      consumeAllOrNothing: async (requests) => await t.mutation(api.rateLimits.consumeAllOrNothing, { requests }),
+      createItem: async (input) => ({ id: await t.mutation(api.items.create, input) }),
+    });
+    const supportQuestion = await supportHandler(new Request("http://host.test/widget", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ boardId: supportBoardId, hostToken: supportToken, title: "Need help", category: "question" }) }));
+    expect(supportQuestion.status).toBe(201);
   });
 
   test("sanitizes host callback failures", async () => {
