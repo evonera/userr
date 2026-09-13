@@ -7,6 +7,7 @@ export const SQLITE_SEARCH_CAPABILITIES = {
   semanticVector: false,
   realtime: "polling-or-host-push",
 } as const;
+export { createRepository, type SqliteClient, type SqliteStatement } from "./repository.js";
 
 /** Creates a safe FTS5 MATCH expression for a user-provided query. */
 export function toFtsQuery(input: string): string {
