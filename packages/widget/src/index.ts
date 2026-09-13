@@ -1,4 +1,5 @@
 export type Theme = "light" | "dark" | "system";
+export * from "./screenshot.js";
 export type Metadata = Record<string, string | number | boolean>;
 export interface CaptureConsent { screenshot?: boolean; consoleLogs?: boolean; }
 export interface CapturePolicy { retentionMs?: number; maxConsoleEntries?: number; maxConsoleChars?: number; screenshotMasks?: readonly { x: number; y: number; width: number; height: number }[]; }
