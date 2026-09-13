@@ -231,8 +231,9 @@ export const deliveries = pgTable(
 export const rateLimitCounters = pgTable("rate_limit_counters", {
   key: text("key").primaryKey(),
   windowStart: bigint("window_start", { mode: "number" }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
   count: integer("count").notNull().default(0),
-});
+}, (table) => [index("rate_limit_counters_expiry_idx").on(table.expiresAt)]);
 
 export type Schema = {
   boards: typeof boards;
