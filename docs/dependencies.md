@@ -33,6 +33,9 @@ testable in every adapter.
   `@dnd-kit/utilities` are runtime dependencies because the shipped roadmap
   surface imports their drag/drop primitives. They are MIT-licensed and are
   intentionally isolated to `@userr/react` rather than the portable core.
+- React widget wrapper: `@userr/react` imports `@userr/widget` to mount and
+  destroy the browser launcher across React route transitions; the widget has
+  no runtime dependencies of its own.
 - Next.js installer: `next` only when generated routes are selected.
 - Postgres: Drizzle plus the customer's database driver and `pgvector`.
 - Supabase: `@supabase/supabase-js` and SQL migrations/RLS policies.
