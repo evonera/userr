@@ -12,12 +12,15 @@ export interface WidgetConfig {
   allowedCategories?: readonly WidgetSubmission["category"][];
 }
 export interface WidgetSubmission { title: string; body: string; category: "bug" | "feature" | "question"; metadata: Metadata; url: string; screenshot?: Blob; consoleLogs?: string[]; }
-export interface FlowField { id: string; label: string; required?: boolean; when?: (values: Record<string, unknown>) => boolean; }
-export interface FeedbackFlow { id: string; fields: readonly FlowField[]; }
+export interface FlowField { id: string; label: string; required?: boolean; multiline?: boolean; placeholder?: string; when?: (values: Record<string, unknown>) => boolean; }
+export interface FeedbackFlow { id: string; title?: string; fields: readonly FlowField[]; }
 export interface FlowValidation { activeFields: readonly FlowField[]; missing: readonly string[]; }
+export interface RenderFlowOptions { initialValues?: Readonly<Record<string, string>>; submitLabel?: string; onSubmit: (values: Readonly<Record<string, string>>) => void | Promise<void>; }
+export interface RenderedFlow { getValues(): Readonly<Record<string, string>>; destroy(): void; }
 export interface FeedbackWidget { open(): void; close(): void; hide(): void; show(): void; setTheme(theme: Theme): void; registerFlow(flow: FeedbackFlow): void; submit(input: Omit<WidgetSubmission,"metadata"|"url">): Promise<void>; destroy(): void; }
 
 const SENSITIVE_KEY = /(?:token|key|secret|password|code|session|credential|auth)/i;
+let renderedFlowSequence = 0;
 export function redactUrl(url: string): string { try { const parsed = new URL(url); for (const [key] of parsed.searchParams) if (SENSITIVE_KEY.test(key)) parsed.searchParams.set(key, "[REDACTED]"); if (parsed.hash) parsed.hash = parsed.hash.replace(/([#&](?:[^=&]*?(?:token|key|secret|password|code|session|credential|auth)[^=&]*)=)[^&]*/gi, "$1[REDACTED]"); parsed.username = ""; parsed.password = ""; return parsed.toString(); } catch { return ""; } }
 export function allowMetadata(input: Metadata | undefined, keys: readonly string[] = []): Metadata { return Object.fromEntries(Object.entries(input ?? {}).filter(([key]) => keys.includes(key))); }
 export function sanitizeConsoleLogs(entries: readonly string[], consent: boolean, policy: Pick<CapturePolicy, "maxConsoleEntries" | "maxConsoleChars"> = {}): string[] { if (!consent) return []; const count = Math.min(Math.max(policy.maxConsoleEntries ?? 50, 0), 50); const chars = Math.min(Math.max(policy.maxConsoleChars ?? 1000, 0), 1000); return entries.slice(-count).map((entry) => entry.slice(0, chars)); }
@@ -26,6 +29,26 @@ export function validateCapturePolicy(consent: CaptureConsent | undefined, polic
 export async function captureScreenshot(config: Pick<WidgetConfig, "consent" | "capturePolicy" | "captureScreenshot">, element?: { selector: string }): Promise<Blob | undefined> { if (!config.consent?.screenshot || !config.captureScreenshot) return undefined; return config.captureScreenshot({ masks: config.capturePolicy?.screenshotMasks ?? [], element }); }
 /** Resolves conditional fields and required values without evaluating host input as code. */
 export function validateFlow(flow: FeedbackFlow, values: Record<string, unknown>): FlowValidation { const ids = new Set<string>(); for (const field of flow.fields) { if (!field.id.trim() || field.id.trim() !== field.id || ids.has(field.id)) throw new Error("Flow field ids must be unique, non-empty, and contain no surrounding whitespace."); ids.add(field.id); } const activeFields = flow.fields.filter((field) => field.when?.(values) ?? true); const missing = activeFields.filter((field) => field.required && (!Object.hasOwn(values, field.id) || values[field.id] === undefined || values[field.id] === null || values[field.id] === "")).map((field) => field.id); return { activeFields, missing }; }
+/** Renders a flow without HTML injection or a framework dependency. Submission remains host-owned. */
+export function renderFlow(container: HTMLElement | ShadowRoot, flow: FeedbackFlow, options: RenderFlowOptions): RenderedFlow {
+  const document = container.ownerDocument; const instanceId = ++renderedFlowSequence; const values = Object.fromEntries(flow.fields.flatMap((field) => Object.hasOwn(options.initialValues ?? {}, field.id) ? [[field.id, options.initialValues?.[field.id] ?? ""]] : []));
+  validateFlow(flow, values);
+  const form = document.createElement("form"); form.dataset.userrFlow = flow.id; form.noValidate = true;
+  if (flow.title) { const heading = document.createElement("h2"); heading.textContent = flow.title; form.append(heading); }
+  const controls = new Map<string, { wrapper: HTMLDivElement; input: HTMLInputElement | HTMLTextAreaElement; error: HTMLSpanElement }>();
+  for (const field of flow.fields) {
+    const wrapper = document.createElement("div"); const label = document.createElement("label"); const input = document.createElement(field.multiline ? "textarea" : "input"); const error = document.createElement("span");
+    input.id = `userr-flow-${instanceId}-${controls.size}`; input.name = field.id; input.required = Boolean(field.required); input.placeholder = field.placeholder ?? ""; input.value = values[field.id] ?? "";
+    label.htmlFor = input.id; label.textContent = field.label; error.id = `${input.id}-error`; error.setAttribute("role", "alert"); error.hidden = true; input.setAttribute("aria-describedby", error.id);
+    input.addEventListener("input", () => { values[field.id] = input.value; sync(); });
+    wrapper.append(label, input, error); form.append(wrapper); controls.set(field.id, { wrapper, input, error });
+  }
+  const submit = document.createElement("button"); submit.type = "submit"; submit.textContent = options.submitLabel ?? "Submit feedback"; form.append(submit);
+  const sync = (showErrors = false) => { const validation = validateFlow(flow, values); const active = new Set(validation.activeFields.map((field) => field.id)); const missing = new Set(validation.missing); for (const [id, control] of controls) { const isActive = active.has(id); control.wrapper.hidden = !isActive; control.input.disabled = !isActive; const invalid = showErrors && missing.has(id); control.input.setAttribute("aria-invalid", String(invalid)); control.error.hidden = !invalid; control.error.textContent = invalid ? `${flow.fields.find((field) => field.id === id)?.label ?? id} is required.` : ""; } return validation; };
+  form.addEventListener("submit", (event) => { event.preventDefault(); const validation = sync(true); if (validation.missing.length) { controls.get(validation.missing[0])?.input.focus(); return; } const activeValues = Object.fromEntries(validation.activeFields.flatMap((field) => Object.hasOwn(values, field.id) ? [[field.id, values[field.id]]] : [])); void options.onSubmit(Object.freeze(activeValues)); });
+  sync(); container.append(form);
+  return { getValues: () => Object.freeze({ ...values }), destroy: () => form.remove() };
+}
 export function elementContext(element: Element | null): { selector: string } | undefined {
   if (!element) return undefined;
   const id = element.getAttribute("id"); if (id) return { selector: `#${CSS.escape(id)}` };

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { allowMetadata, captureScreenshot, redactUrl, sanitizeConsoleLogs, validateCapturePolicy, validateFlow } from "./index.js";
+import { JSDOM } from "jsdom";
+import { allowMetadata, captureScreenshot, redactUrl, renderFlow, sanitizeConsoleLogs, validateCapturePolicy, validateFlow } from "./index.js";
 
 test("capture requires explicit consent and bounded host retention", () => {
   assert.deepEqual(sanitizeConsoleLogs(["one"], false), []);
@@ -29,4 +30,15 @@ test("flows resolve conditions and reject incomplete or ambiguous schemas", () =
   assert.throws(() => validateFlow({ id: "bad", fields: [{ id: "   ", label: "Blank" }] }, {}), /non-empty/);
   assert.throws(() => validateFlow({ id: "bad", fields: [{ id: " title", label: "Title" }] }, {}), /whitespace/);
   assert.deepEqual(validateFlow({ id: "prototype", fields: [{ id: "constructor", label: "Constructor", required: true }] }, {}).missing, ["constructor"]);
+});
+test("flow renderer updates conditions, reports missing values, and submits host-owned data", async () => {
+  const dom = new JSDOM("<main></main>"); const container = dom.window.document.querySelector("main") as HTMLElement; let submitted: Readonly<Record<string, string>> | undefined;
+  const rendered = renderFlow(container, { id: "bug", title: "Report a bug", fields: [{ id: "title", label: "Title", required: true, placeholder: "What broke?" }, { id: "details", label: "Details", multiline: true, when: (values) => values.title === "Broken" }] }, { initialValues: { ignored: "secret" }, onSubmit: (values) => { submitted = values; } });
+  const form = container.querySelector("form") as HTMLFormElement; const title = form.elements.namedItem("title") as HTMLInputElement; const details = form.elements.namedItem("details") as HTMLTextAreaElement;
+  assert.equal(form.querySelector("h2")?.textContent, "Report a bug"); assert.equal(title.placeholder, "What broke?"); assert.equal(details.disabled, true);
+  form.requestSubmit(); assert.equal(title.getAttribute("aria-invalid"), "true"); assert.equal(submitted, undefined);
+  title.value = "Broken"; title.dispatchEvent(new dom.window.Event("input", { bubbles: true })); assert.equal(details.disabled, false); details.value = "Private reproduction steps"; details.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  title.value = "Fixed"; title.dispatchEvent(new dom.window.Event("input", { bubbles: true })); assert.equal(details.disabled, true);
+  form.requestSubmit(); await Promise.resolve(); assert.deepEqual(submitted, { title: "Fixed" }); assert.deepEqual(rendered.getValues(), { title: "Fixed", details: "Private reproduction steps" });
+  rendered.destroy(); assert.equal(container.childElementCount, 0);
 });
